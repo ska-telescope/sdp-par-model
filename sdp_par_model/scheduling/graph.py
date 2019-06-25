@@ -26,7 +26,7 @@ class Task(object):
         self.name = name
         self.hpso = hpso
         self.result_name = result_name
-        self.time = time
+        self.time = round(time) # Round to nearest second
         self.cost = cost
         self.edge_cost = edge_cost
 

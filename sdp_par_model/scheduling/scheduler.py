@@ -1,5 +1,5 @@
 
-from . import level_trace
+from . import level_trace, graph
 
 def toposort(tasks):
     """Simple topological sort routine for task lists. Not fast, but easy
@@ -184,6 +184,71 @@ def schedule(tasks, capacities,
         assert_schedule_consistency(usage, task_time, task_edge_end_time)
 
     return usage, task_time, task_edge_end_time
+
+def schedule_steady(tasks, capacities, loop_by_cost, verbose=False, max_loops=3):
+    """Schedules a (multi-)graph of tasks, with all cost beyond a certain
+    point getting "looped" over to the start. This basically assumes a
+    system that has already been warmed up using the very same task
+    graph passed.
+
+    :param tasks: List of tasks, in topological order
+    :param capacities: Dictionary of resource names to capacity
+    :param loop_by_cost: We will "loop" the schedule around at the
+       last instance of this cost
+    :param max_loops: Maximum numbers of times to loop if process
+       doesn't converge
+g    :return: Tuple (loop_length, usage, task_time, task_edge_end_time)
+
+    """
+
+    looped_tasks = []
+    looped_task_time = {}
+    looped_task_edge_end_time = {}
+    usages = []
+    final_loop_length = None
+    for i in range(max_loops):
+
+        # Schedule with looped tasks
+        usage, task_time, task_edge_end_time = schedule(
+            tasks + looped_tasks, capacities,
+            task_time=looped_task_time, task_edge_end_time=looped_task_edge_end_time,
+            verbose=verbose)
+
+        # Check whether we've seen this resource usage pattern
+        # before. If yes, we have reached some sort of fixpoint.
+        if usage in usages:
+            # Take average of loop cost
+            ix = usages.index(usage)
+            loop_lengths = [ usage[loop_by_cost].end() for usage in usages[ix:] ]
+            final_loop_length = sum(loop_lengths) / len(loop_lengths)
+            break
+        usages.append(usage)
+
+        # Find loop start time
+        loop_length = usage[loop_by_cost].end()
+
+        # Find tasks that "loop" over (everything that overlaps)
+        looped_tasks = []
+        looped_task_time = {}
+        looped_task_edge_end_time = {}
+        for task in tasks:
+            if task_time[task] + task.time > loop_length or \
+               task_edge_end_time[task] > loop_length:
+
+                # Make copy of task
+                ltask = graph.Task("{} (looped)".format(task.name),
+                                   task.hpso, task.result_name,
+                                   task.time, task.cost, task.edge_cost)
+
+                looped_tasks.append(ltask)
+                looped_task_time[ltask] = task_time[task] - loop_length
+                looped_task_edge_end_time[ltask] = task_edge_end_time[task] - loop_length
+
+    # If we did not converge, take worst case
+    if final_loop_length is None:
+        final_loop_length = max(*[ usage[loop_by_cost].end() for usage in usages])
+
+    return final_loop_length, usage, task_time, task_edge_end_time
 
 def reschedule(tasks, capacities, start_time,
                task_time, task_edge_end_time,

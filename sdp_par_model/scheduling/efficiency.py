@@ -15,20 +15,21 @@ except:
     HAVE_MP = False
 
 def _determine_durations(cost_amounts):
-    csv, hpso_seq, caps, kwargs = cost_amounts
+    csv, hpso_seq, caps, loop_by_cost, max_loops, kwargs = cost_amounts
     # Schedule, collect efficiencies
     effs = []
     for cap in caps:
         nodes = graph.hpso_sequence_to_nodes(csv, hpso_seq, cap, **kwargs)
         try:
-            usage, task_time, task_edge_end_time = scheduler.schedule(nodes, cap, verbose=False)
-            effs.append(usage[graph.Resources.Observatory].end())
-        except ValueError:
+            effs.append(scheduler.schedule_steady(nodes, cap, loop_by_cost, max_loops=max_loops)[0])
+        except Exception:
             effs.append(None)
     return effs
 
 def determine_durations_batch(csv, hpso_list, costs, capacities, update_rates,
-                              percent, percent_step, count, **kwargs):
+                              percent, percent_step, count,
+                              loop_by_cost = graph.Resources.Observatory, max_loops = 5,
+                              **kwargs):
     """Perform Monte-Carlo simulation of the effects of capacity changes.
 
     :param csv: Cached telescope parameters to use for creating graph
@@ -39,6 +40,7 @@ def determine_durations_batch(csv, hpso_list, costs, capacities, update_rates,
     :param percent: Variation range on costs
     :param percent_step: Variation step
     :param count: Numer of simulation runs
+    :param max_loops: Number of loops to reach steady state
     :param **kwargs: Other parameters to pass to `hpso_sequence_to_nodes`
     :returns: Map of costs to a list of (capacity, durations) pairs
     """
@@ -61,7 +63,7 @@ def determine_durations_batch(csv, hpso_list, costs, capacities, update_rates,
             update_rates(cap)
             caps.append(cap)
         # Create work item
-        all_work.extend([(csv, seq, caps, kwargs) for seq in hpso_seqs])
+        all_work.extend([(csv, seq, caps, loop_by_cost, max_loops, kwargs) for seq in hpso_seqs])
 
     # Calculate results. Will have to fall back to normal map on Windows
     if HAVE_MP:
