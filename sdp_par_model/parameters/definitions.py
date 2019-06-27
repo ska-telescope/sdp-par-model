@@ -459,7 +459,7 @@ def apply_telescope_parameters(o, telescope):
         o.tICAL_G = 1.0 # Solution interval for Antenna gains
         o.tICAL_B = 3600.0  # Solution interval for Bandpass
         o.tICAL_I = 10.0 # Solution interval for Ionosphere
-        o.NIpatches = 30 # Number of ionospheric patches to solve
+        o.NIpatches = 300 # Number of ionospheric patches to solve
 
     elif telescope == Telescopes.SKA1_Mid:
         o.Bmax = 150000  # Actually constructed max baseline in *m*

@@ -414,7 +414,7 @@ def _apply_correct_equations(o):
     if not o.pipeline == Pipelines.Ingest:
         o.set_product(Products.Correct,
             T = o.Tsnap, N = o.Nbeam*o.Nmajortotal * o.Npp * o.Nf_min_gran,
-            Rflop = 8 * o.Nmm * o.Rvis * o.NIpatches / o.Nf_min_gran,
+            Rflop = 8 * o.Nmm * o.Rvis / o.Nf_min_gran,
             Rout = o.Mvis * o.Rvis / o.Nf_min_gran)
 
 
