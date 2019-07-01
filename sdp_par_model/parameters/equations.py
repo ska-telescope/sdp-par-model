@@ -353,6 +353,8 @@ def _apply_geometry_equations(o, symbolify):
     o.Ngw_backward = BLDep(b, Ngw(o.DeltaW_wproj(b), o.Theta_fov))
     o.Ngw_predict = BLDep(b, Ngw(o.DeltaW_wproj(b), o.Theta_fov_predict))
 
+    # Determine A-kernel size
+    o.Naa = o.Naa_a + o.Naa_b * sqrt(o.NIpatches) / o.Nfacet
 
     # TODO: Check split of kernel size for backward and predict steps.
     # squared linear size of combined W and A kernels; used in eqs 23 and 32

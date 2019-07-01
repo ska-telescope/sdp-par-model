@@ -343,7 +343,8 @@ def apply_global_parameters(o):
     #o.Mvis = 10.0  # Memory size of a single visibility datum in bytes. Set at 10 on 26 Jan 2016 (Ferdl Graser, CSP ICD)
     o.Mvis = 12  # Memory size of a single visibility datum in bytes. See below. Estimated value may change (again).
     o.Mjones = 64.0  # Memory size of a Jones matrix (taken from Ronald's calibration calculations)
-    o.Naa = 9  # Support Size of the A Kernel, in (linear) Pixels.
+    o.Naa_a = 7  # Base support Size of the A Kernel, in (linear) Pixels.
+    o.Naa_b = 2  # Support increase per square root of ionospheric patches to model
     o.Nmm = 4  # Mueller matrix Factor: 1 is for diagonal terms only, 4 includes off-diagonal terms too.
     o.Npp = 4  # Number of polarization products
     o.Nw = 2  # Bytes per value
