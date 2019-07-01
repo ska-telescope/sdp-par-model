@@ -15,6 +15,12 @@ from .parameters import equations as f
 # from .parameters.definitions import Constants as c
 from . import evaluate
 
+try:
+    import multiprocessing
+    HAVE_MP=True
+except:
+    HAVE_MP=False
+
 TEL_PARAM_CACHE = pylru.lrucache(1000)
 
 class PipelineConfig:
@@ -317,8 +323,31 @@ class PipelineConfig:
 
         return values
 
+    @staticmethod
+    def _eval_sweep(pars):
+        pipelineConfig, verbose, par_val, parameter_string, expression_strings = pars
 
-    def eval_param_sweep_1d(pipelineConfig, expression_string='Rflop',
+        # Calculate telescope parameter with adjusted parameter
+        tp = pipelineConfig.calc_tel_params(
+            verbose, adjusts={ parameter_string: par_val })
+
+        # Perform a check to see that the value of the assigned
+        # parameter wasn't changed by the imaging equations, otherwise
+        # the assigned value would have been lost (i.e. not a free
+        # parameter)
+        parameter_final_value = tp.get(parameter_string)
+        eta = 1e-10
+        if abs((parameter_final_value - par_val)/max(1,par_val)) > eta:
+            raise AssertionError('Value assigned to %s seems to be overwritten after assignment '
+                                 'by the method compute_derived_parameters(). (%g -> %g). '
+                                 'Cannot peform parameter sweep.'
+                                 % (parameter_string, par_val, parameter_final_value))
+
+        # Get results
+        return list([ evaluate.evaluate_expression(tp.get(expr, 0), tp)
+                      for expr in expression_strings ])
+
+    def eval_param_sweep_1d(pipelineConfig, expression_strings='Rflop',
                             parameter_string='Rccf', param_val_min=10,
                             param_val_max=10, number_steps=1,
                             verbose=False):
@@ -327,7 +356,7 @@ class PipelineConfig:
         number of steps
 
         :param pipelineConfig:
-        :param expression_string: The expression that needs to be evaluated, as string (e.g. "Rflop")
+        :param expression_strings: The expression(s) that needs to be evaluated, as string (e.g. "Rflop")
         :param parameter_string: the parameter that will be swept - written as text (e.g. "Bmax")
         :param param_val_min: minimum value for the parameter's value sweep
         :param param_val_max: maximum value for the parameter's value sweep
@@ -340,41 +369,26 @@ class PipelineConfig:
         """
         assert param_val_max > param_val_min
 
-        print("Starting sweep of parameter %s, evaluating expression %s over range (%s, %s) in %d steps "
+        if isinstance(expression_strings, str):
+            expression_strings = [expression_strings]
+
+        print("Starting sweep of parameter %s over range (%s, %s), evaluating expressions %s in %d steps "
               "(i.e. %d data points)" %
-              (parameter_string, expression_string, str(param_val_min), str(param_val_max), number_steps, number_steps + 1))
+              (parameter_string, str(param_val_min), str(param_val_max),
+               expression_strings, number_steps, number_steps + 1))
 
         param_values = np.linspace(param_val_min, param_val_max, num=number_steps + 1)
+        work = [ (pipelineConfig, verbose, par_val, parameter_string, expression_strings)
+                 for par_val in param_values ]
 
-        results = []
-        for i in range(len(param_values)):
-            # Calculate telescope parameter with adjusted parameter
-            adjusts = {parameter_string: param_values[i]}
-            tp = pipelineConfig.calc_tel_params(verbose, adjusts=adjusts)
-
-            percentage_done = i * 100.0 / len(param_values)
-            print("> %.1f%% done: Evaluating %s for %s = %g" % (percentage_done, expression_string,
-                                                                parameter_string, param_values[i]))
-
-            # Perform a check to see that the value of the assigned parameter wasn't changed by the imaging equations,
-            # otherwise the assigned value would have been lost (i.e. not a free parameter)
-            parameter_final_value = tp.get(parameter_string)
-            eta = 1e-10
-            if abs((parameter_final_value - param_values[i])/param_values[i]) > eta:
-                raise AssertionError('Value assigned to %s seems to be overwritten after assignment '
-                                     'by the method compute_derived_parameters(). (%g -> %g). '
-                                     'Cannot peform parameter sweep.'
-                                     % (parameter_string, param_values[i], parameter_final_value))
-
-            if expression_string.find(".") >= 0:
-                product, expr = expression_string.split(".")
-                result_expression = tp.products[product].get(expr, 0)
-            else:
-                result_expression = tp.get(expression_string)
-            results.append(evaluate.evaluate_expression(result_expression, tp))
+        if HAVE_MP:
+            with multiprocessing.Pool() as p:
+                resultss = p.map(PipelineConfig._eval_sweep, work)
+        else:
+            resultss = list(map(PipelineConfig._eval_sweep, work))
 
         print('done with parameter sweep!')
-        return (param_values, results)
+        return (param_values, list(zip(*resultss)))
 
 
     def eval_param_sweep_2d(pipelineConfig, expression_string='Rflop',

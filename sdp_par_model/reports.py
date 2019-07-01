@@ -110,7 +110,7 @@ RESULT_MAP = [
     ('Predict rate',               'M/s',        False,   False, lambda tp: tp.Rvis_predict  / c.mega),
     ('Backward rate',              'M/s',        False,   False, lambda tp: tp.Rvis_backward  / c.mega),
 
-    ('-- Kernel Sizes --',         '',           False,   False, lambda tp: ''                    ),
+    ('-- W Stacking --',           '',           False,   False, lambda tp: ''                    ),
     ('Delta W earth',              'lambda',     False,   False, lambda tp: tp.DeltaW_Earth       ),
     ('Delta W snapshot',           'lambda',     False,   False, lambda tp: tp.DeltaW_SShot       ),
     ('Delta W max',                'lambda',     False,   False, lambda tp: tp.DeltaW_max         ),
@@ -401,7 +401,7 @@ def show_table_compare3(title, labels, values_1, values_2, values_3, units):
     display(HTML(s))
 
 
-def plot_line_datapoints(title, x_values, y_values, xlabel=None, ylabel=None):
+def plot_line_datapoints(title, x_values, y_values, xlabel=None, ylabel=None, show=True):
     """
     Plots a series of (x,y) values using a line and data-point visualization.
 
@@ -412,12 +412,13 @@ def plot_line_datapoints(title, x_values, y_values, xlabel=None, ylabel=None):
     """
     pylab.rcParams['figure.figsize'] = 8, 6  # that's default image size for this interactive session
     assert len(x_values) == len(y_values)
-    plt.plot(x_values, y_values, 'ro', x_values, y_values, 'b')
-    plt.title('%s\n' % title)
+    plt.plot(x_values, y_values, marker='o', label=ylabel)
+    plt.title(title)
     plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
-    plt.ylim((0, max(y_values)))
-    plt.show()
+    plt.legend()
+    plt.ylim((0, plt.gca().get_ylim()[1]))
+    if show:
+        plt.show()
 
 
 def plot_2D_surface(title, x_values, y_values, z_values, contours=None, xlabel=None, ylabel=None, zlabel=None, nlevels=15):
