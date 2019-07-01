@@ -445,18 +445,20 @@ def _apply_grid_equations(o):
     # Assume 8 flops per default. For image-domain gridding we
     # need 6 flops additionally.
     Rflop_per_vis = 8
+    Nkernel2 = o.Nkernel2_backward(b)
     if not isinstance(o.image_gridding, Symbol) and o.image_gridding > 0:
         Rflop_per_vis = 8 + 6
+        Nkernel2 = o.image_gridding**2
 
     o.set_product(Products.Grid, T=o.Tsnap,
         N = BLDep(b, o.Nmajortotal * o.Nbeam * o.Npp * o.Ntt_backward *
                      o.Nfacet**2 * o.Nf_vis_backward(b)),
-        Rflop = blsum(b, Rflop_per_vis * o.Nmm * o.Nkernel2_backward(b) / o.Tcoal_backward(b)),
+        Rflop = blsum(b, Rflop_per_vis * o.Nmm * Nkernel2 / o.Tcoal_backward(b)),
         Rout = o.Mcpx * o.Npix_linear * (o.Npix_linear / 2 + 1) / o.Tsnap)
     o.set_product(Products.Degrid, T = o.Tsnap,
         N = BLDep(b, o.Nmajortotal * o.Nbeam * o.Npp * o.Ntt_predict *
                      o.Nfacet_predict**2 * o.Nf_vis_predict(b)),
-        Rflop = blsum(b, Rflop_per_vis * o.Nmm * o.Nkernel2_predict(b) / o.Tcoal_predict(b)),
+        Rflop = blsum(b, Rflop_per_vis * o.Nmm * Nkernel2 / o.Tcoal_predict(b)),
         Rout = blsum(b, o.Mvis / o.Tcoal_predict(b)))
 
 
@@ -719,14 +721,31 @@ def _apply_kernel_equations(o):
         # expensive, but we need less "kernels" (which are now
         # "sub-grids"). Note that sub-grid convolution now happens
         # *after* gridding!
-        o.Nf_gcf_backward = BLDep(b, o.Theta_fov * b / o.wl_sb_min / o.image_gridding
-                                  * (1 - 1 / o.Qsubband))
-        o.Nf_gcf_predict = BLDep(b, o.Theta_fov_predict * b / o.wl_sb_min / o.image_gridding
-                                 * (1 - 1 / o.Qsubband))
+
+        # Determine "slack", i.e. the size of the space that we can
+        # aggregate visibilities from for a common sub-grid FFT
+        o.Nslack_bw = BLDep(b, Max(1e-10, o.image_gridding - o.Nkernel_AW_backward(b)))
+        o.Nslack_pred = BLDep(b, Max(1e-10, o.image_gridding - o.Nkernel_AW_predict(b)))
+
+        # Convert slack to frequency count. Note that
+        #   n_cell_f = theta * b * (f_sbmin + frac_sb (f_sbmax - f_sbmin)) / c
+        #   => dn_cell_f = theta * b * dfrac_sb * (f_sbmax - f_sbmin) / c
+        #   => 1 / dfrac_sb = theta * b * (1 / wl_sb_min - 1 / wl_sb_max) / dn_cell_f
+        o.Nf_gcf_backward = o.Nsubbands * o.Theta_fov * BLDep(b, b) * \
+                            (1 / o.wl_sb_min - 1 / o.wl_sb_max) / o.Nslack_bw
+        o.Nf_gcf_predict = o.Nsubbands * o.Theta_fov * BLDep(b, b) * \
+                           (1 / o.wl_sb_min - 1 / o.wl_sb_max) / o.Nslack_pred
+
+        # Convert slack to time steps.
+        #   n_cell_t = 2 pi * theta * b / wl / 24 / 3600 * t
+        #   => 1 / dt = n_cell_t * wl * 24 * 3600 / 2 / pi / theta / b
+        # Note that we do not have to stop at Tion there - we can
+        # share the FFT to grid space even if we multiply in different
+        # A-patterns.
         o.Tkernel_backward = BLDep(b, Max(o.Tcoal_backward(b), Min(o.Tsnap,
-            24 * 3600 * o.image_gridding / 2 / pi / o.Theta_fov / b * o.wl_sb_min)))
+            24 * 3600 * o.Nslack_bw(b) / 2 / pi / o.Theta_fov / b * o.wl_sb_min)))
         o.Tkernel_predict = BLDep(b, Max(o.Tcoal_backward(b), Min(o.Tsnap,
-            24 * 3600 * o.image_gridding / 2 / pi / o.Theta_fov_predict / b * o.wl_sb_min)))
+            24 * 3600 * o.Nslack_pred(b) / 2 / pi / o.Theta_fov_predict / b * o.wl_sb_min)))
     else:
         # For both of the following, maintain distributability;
         # need at least Nf_min kernels.
