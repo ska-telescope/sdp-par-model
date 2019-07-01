@@ -1283,7 +1283,7 @@ def compare_csv(result_file, ref_file,
     if return_diffs:
         return all_diff_sums
 
-def find_csvs(csv_path = "../data/csv"):
+def find_csvs(csv_path = "../data/csv", must_be_in_git=True):
     """
     Returns a map of all CSV files currently checked into the Git repository.
 
@@ -1291,8 +1291,11 @@ def find_csvs(csv_path = "../data/csv"):
     """
 
     # Get all reference files from Git history
-    refs = subprocess.check_output(["git", "log", "--pretty=format:", "--name-only", "--reverse", csv_path]).split()
-    refs = list(map(lambda r: os.path.relpath(r.decode(), "iPython"), reversed(refs)))
+    if must_be_in_git:
+        refs = subprocess.check_output(["git", "log", "--pretty=format:", "--name-only", "--reverse", csv_path]).split()
+        refs = list(map(lambda r: os.path.relpath(r.decode(), "iPython"), reversed(refs)))
+    else:
+        refs = [ os.path.join(csv_path, f) for f in os.listdir(csv_path) ]
 
     csv_map = {}
     p = re.compile("[\d\-]*\-([a-z0-9]+)_(pipelines|hpsos)\.")
