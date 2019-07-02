@@ -400,7 +400,7 @@ def apply_global_parameters(o):
     o.Nsource_find_iterations = 10 # Number of iterations in source finding
     o.Nsource = 1000 # Number of point sources modelled TODO: Should be set per HPSO
     o.Nminor = 1000 # Average number of minor cycles per major cycle
-    o.Nsolve = 10 # Number of Stefcal iterations
+    o.Nsolve = 20 # Number of Stefcal iterations
     o.Nscales = 10 # Number of scales in MS-MFS - updated to match requirement: SDP_REQ-676 (L2)
     o.Npatch = 4097 # Number of pixels in clean patch
 
@@ -485,7 +485,7 @@ def apply_telescope_parameters(o, telescope):
         o.tICAL_G = 1.0 # Solution interval for Antenna gains
         o.tICAL_B = 3600.0  # Solution interval for Bandpass
         o.tICAL_I = 10.0 # Solution interval for Ionosphere
-        o.NIpatches = 1 # Number of ionospheric patches to solve
+        o.NIpatches = 100 # Number of ionospheric patches to solve
         #o.Tion = 3600
 
     else:
