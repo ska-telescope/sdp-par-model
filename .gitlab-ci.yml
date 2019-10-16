@@ -7,6 +7,7 @@ before_script:
   - source venv/bin/activate
   - pip install -r requirements.txt
       pytest pytest-xdist nbval pytest-cov pytest-rerunfailures
+      pylint pylint_junit
 
 # Set up caching as suggested by GitLab's Python template
 variables:
@@ -34,7 +35,7 @@ test:
   stage: test
   tags: [sdp]
   script:
-    - py.test --verbose --color=yes --junitxml=junit.xml
+    - py.test --verbose --color=yes --junitxml=unit-tests.xml
         --cov=sdp_par_model --cov-report=term --cov-report=html
         -n 4 --dist loadscope --nbval-lax
         notebooks/SKA1_Export.ipynb
@@ -43,21 +44,32 @@ test:
         notebooks/SKA1_Scheduling_New.ipynb
         tests
   artifacts:
-    paths: [htmlcov/, junit.xml]
+    paths:
+      - htmlcov/
+      - unit-tests.xml
     reports:
-      junit: junit.xml
+      junit: unit-tests.xml
+
+lint:
+  stage: test
+  tags: [sdp]
+  script:
+    - pylint --output-format=pylint_junit.JUnitReporter sdp_par_model > linting.xml
+  artifacts:
+    paths:
+      - linting.xml
+    reports:
+      junit: linting.xml
 
 # Generate GitLab pages. This is done only for the master. On this
 # occasion, we export:
 #
 # 1. The Sphinx documentation (root)
 # 2. All the notebooks (note that this will re-run them)
-# 3. Coverage reports
 pages:
   stage: deploy
   tags: [sdp]
   only: [master]
-  dependencies: [test] # For coverage
   script:
     # Make Sphinx documentation
     - pip install sphinx sphinx-rtd-theme
@@ -67,7 +79,6 @@ pages:
     # Copy all into "public"
     - cp -R docs/_build/html public
     - cp -R notebooks/out public/notebooks
-    - cp -R htmlcov public
   artifacts:
     paths: [public/]
     expire_in: 1 week
