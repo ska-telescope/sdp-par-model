@@ -7,7 +7,7 @@ before_script:
   - source venv/bin/activate
   - pip install -r requirements.txt
       pytest pytest-xdist nbval pytest-cov pytest-rerunfailures
-      pylint pylint_junit
+      pylint pylint-junit pylint-exit
 
 # Set up caching as suggested by GitLab's Python template
 variables:
@@ -54,7 +54,7 @@ lint:
   stage: test
   tags: [sdp]
   script:
-    - pylint --output-format=pylint_junit.JUnitReporter sdp_par_model > linting.xml
+    - pylint --output-format=junit sdp_par_model > linting.xml || pylint-exit $?
   artifacts:
     paths:
       - linting.xml
