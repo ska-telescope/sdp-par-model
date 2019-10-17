@@ -19,47 +19,50 @@ stages:
   - test
   - deploy
 
-# Execute all available code. Most of our "tests" are actually the
-# notebooks, so we use the nbval extension to pull them into py.test.
-# This has the advantage that we can generate coverage statistics for
-# the entire thing.
-#
-# Unfortunately, there currently seems to be some flakiness to this:
-# Sometimes a notebook fails to start, reporting "RuntimeError: Kernel
-# didn't respond in 60 seconds". There's open tickets on similar
-# issues, so maybe this is going to away eventually. For the moment,
-# simply retrying a couple of times seems to fix it. This likely means
-# that we spin a bit if something goes wrong systematically, but
-# better than dealing with random false positives...
 test:
   stage: test
   tags: [sdp]
   script:
+    # Run py.test to produce unit test and code coverage results.
+    #
+    # Most of our "tests" are actually the notebooks, so we use the
+    # nbval extension to pull them into py.test. This has the advantage
+    # that we can generate coverage statistics for the entire thing.
+    #
+    # Unfortunately, there currently seems to be some flakiness to this:
+    # Sometimes a notebook fails to start, reporting "RuntimeError: Kernel
+    # didn't respond in 60 seconds". There's open tickets on similar
+    # issues, so maybe this is going to away eventually. For the moment,
+    # simply retrying a couple of times seems to fix it. This likely means
+    # that we spin a bit if something goes wrong systematically, but
+    # better than dealing with random false positives...
     - py.test --verbose --color=yes --junitxml=unit-tests.xml
-        --cov=sdp_par_model --cov-report=term --cov-report=html
+        --cov=sdp_par_model --cov-report=term
+        --cov-report=html:code-coverage
+        --cov-report=xml:code-coverage.xml
         -n 4 --dist loadscope --nbval-lax
         notebooks/SKA1_Export.ipynb
         notebooks/SKA1_SDP_Products.ipynb
         notebooks/SKA1_Imaging_Performance_Model.ipynb
         notebooks/SKA1_Scheduling_New.ipynb
         tests
-  artifacts:
-    paths:
-      - htmlcov/
-      - unit-tests.xml
-    reports:
-      junit: unit-tests.xml
-
-lint:
-  stage: test
-  tags: [sdp]
-  script:
+    # Run pylint to produce linting results. It needs to be run twice,
+    # once for text output, and once for junit xml output. The exit
+    # codes are caught by pylint-exit which reports the categories of
+    # messages output by pylint.
+    - pylint --output-format=colorized sdp_par_model || pylint-exit $?
     - pylint --output-format=junit sdp_par_model > linting.xml || pylint-exit $?
   artifacts:
     paths:
+      - code-coverage/
+      - code-coverage.xml
       - linting.xml
+      - unit-tests.xml
     reports:
-      junit: linting.xml
+      junit:
+        - code-coverage.xml
+        - linting.xml
+        - unit-tests.xml
 
 # Generate GitLab pages. This is done only for the master. On this
 # occasion, we export:
