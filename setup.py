@@ -9,7 +9,7 @@ setup(name='sdp-par-model',
       author='Rosie Bolton, Francois Malan, Bojan Nikolic, Andreas Wicenec, Peter Wortmann',
       url='https://github.com/SKA-ScienceDataProcessor/sdp-par-model',
       license='Apache License Version 2.0',
-      packages=['sdp_par_model'],
+      packages=['sdp_par_model', 'sdp_par_model.parameters', 'sdp_par_model.scheduling' ],
       test_suite="tests",
       tests_require=['pytest'],
       )
