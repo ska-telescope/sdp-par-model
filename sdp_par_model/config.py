@@ -99,7 +99,7 @@ class PipelineConfig:
         if hasattr(self, "hpso"):
             name = self.hpso + ' (' + self.pipeline + ')'
         else:
-            name = self.pipeline + ' (' + self.band + ')'
+            name = self.pipeline + ' (' + self.telescope + ":" + self.band + ')'
 
         # Add modifiers
         for n, val in self.adjusts.items():
