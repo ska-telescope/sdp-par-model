@@ -8,6 +8,7 @@
 /_build
 /docs/_build
 /.idea
+/venv
 
 /notebooks/.ipynb_checkpoints
 /notebooks/out
