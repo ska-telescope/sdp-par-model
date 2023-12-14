@@ -20,6 +20,7 @@ import sympy
 import subprocess
 import os
 from pathlib import Path
+import yaml
 
 
 try:
@@ -284,19 +285,126 @@ class CompareTelescopes:
         )
 
 
+def positions_to_histogram(centre_antenna, all_other_antennas, histogram_bin_edges):
+
+    Rearth = 6371010.0/1000.0
+    degtorad = np.pi/180.0
+
+    array_x_centre = Rearth * np.cos(centre_antenna['lat']*degtorad) * np.cos(centre_antenna['lon']*degtorad)
+    array_y_centre = Rearth * np.cos(centre_antenna['lat']*degtorad) * np.sin(centre_antenna['lon']*degtorad)
+    array_z_centre = Rearth * np.sin(centre_antenna['lat']*degtorad)
+
+    Array_dx = []
+    Array_dy = []
+    Array_dz = []
+    Array_r = []
+
+    Number_positions = len(all_other_antennas)
+
+    for i in range(Number_positions):
+        Array_dx.append(Rearth*np.cos(all_other_antennas['lat'][i]*degtorad)*np.cos(all_other_antennas['lon'][i]*degtorad)-array_x_centre)
+        Array_dy.append(Rearth*np.cos(all_other_antennas['lat'][i]*degtorad)*np.sin(all_other_antennas['lon'][i]*degtorad)-array_y_centre)
+        Array_dz.append(Rearth*np.sin(all_other_antennas['lat'][i]*degtorad)-array_z_centre)
+        Array_r.append(np.sqrt(Array_dx[i]**2+Array_dy[i]**2+Array_dz[i]**2))
+
+    Baseline_lengths = []
+    for i in range(Number_positions):
+        for j in range(Number_positions):
+            if j > i:
+                blength=(np.sqrt((Array_dx[j]-Array_dx[i])**2 + (Array_dy[j]-Array_dy[i])**2 + (Array_dz[j]-Array_dz[i])**2))
+                Baseline_lengths.append(blength)
+
+    n, _ = np.histogram(Baseline_lengths, bins=histogram_bin_edges, density=False)
+    
+    return n
+
+
 class CompareObservation:
     def __init__(
             self,
-            input_file,
+            yaml_file,
+            custom_array,
+            array_config,
+            num_bins,
             verbosity='Overview',
             save_filename=None,
             ):
         self.verbosity = verbosity
-        self._parse_yaml(input_file)
+        self._parse_yaml(yaml_file, custom_array, array_config, num_bins)
         self._validate_attributes()
 
-    def _parse_yaml(self, input_file):
-        pass
+    def _parse_yaml(yaml_file, custom_array=False, array_config=None, num_bins=None):
+        
+        # list_allowed_adjusts = ['Bmax',
+        #                         'Ds',
+        #                         'Na',
+        #                         'Nbram',
+        #                         'Nf_max',
+        #                         'Tint_max',
+        #                         'B_dump_ref',
+        #                         'tRCAL_G',
+        #                         'tICAL_G',
+        #                         'tICAL_B',
+        #                         'tICAL_I',
+        #                         'NIpatches',
+        #                         'NIpatches',
+        #                         'baseline_bins',
+        #                         'baseline_bin_distribution'
+        # ]
+    
+        with open(yaml_file, 'r') as file:
+            config = yaml.safe_load(file)
+            try:
+                telescope = config['telescope']
+            except AttributeError:
+                print('Telescope must be specified.')
+                
+            try:
+                band = config['band']
+            except AttributeError:
+                print('Band must be specified.')
+                
+            try:
+                pipelines = config['pipelines']
+            except AttributeError:
+                print('Pipelines must be specified.')
+            
+            if custom_array:
+                try:
+                    bmax = config['Bmax']
+                except AttributeError:
+                    print('Bmax required with custom_array=True')
+            
+            adjusts = dict(config).pop('telescope').pop('band').pop('pipelines')
+
+        if custom_array:
+            if None == array_config:
+                raise ValueError('array_config file must be specified with custom_array = True')
+    
+            if None == num_bins:
+                raise ValueError('num_bins must be specified when using a custom array')
+            
+            row_dtypes = np.dtype([('name', 'U10'), ('lon', 'f8'), ('lat', 'f8')])
+            rows = np.loadtxt(array_config, usecols=(0, 1, 2), dtype=row_dtypes)
+            assert rows[0]['name'] == 'Centre', 'First entry in layout file must be the centre of the array'
+            centre_antenna = rows[0]
+            all_other_antennas = rows[1:]
+            
+            histogram_bin_edges = []
+            for i in range(num_bins):
+                # Right bin edges range from bmax/num_bins to bmax
+                # Scaling bins in this way gives a more even distribution
+                # than using constant width
+    
+                fraction_of_bmax = (i+1) / num_bins
+                histogram_bin_edges.append(bmax * fraction_of_bmax)
+                
+            histogram_heights = positions_to_histogram(centre_antenna, all_other_antennas, histogram_bin_edges)
+            
+            adjusts['baseline_bins'] = histogram_bin_edges
+            adjusts['baseline_bin_distribution'] = histogram_heights
+            
+        return (telescope, band, pipelines, adjusts)
 
     def _check_attribute_in_set(self, attribute, attribute_name, valid_set):
         if attribute not in valid_set:
