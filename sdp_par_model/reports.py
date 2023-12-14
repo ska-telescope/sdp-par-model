@@ -158,12 +158,12 @@ RESULT_MAP = [
 ]
 
 
-def toggles(opts, *args, **kwargs):
+def get_toggles(opts, *args, **kwargs):
     """ Helper for creating toggle buttons from given options """
     return ToggleButtons(options=opts, *args, **kwargs)
 
 
-def adjusts(placeholder='e.g. blcoal=False Bmax=40*1000 Nsource=100'):
+def get_adjusts(placeholder='e.g. blcoal=False Bmax=40*1000 Nsource=100'):
     """ Create widget for adjustments (with some suggestions) """
     return Text(placeholder=placeholder, layout=Layout(width='95%'))
 
@@ -245,13 +245,13 @@ class CompareTelescopes:
 
     def _interactive_run(self):
         self.telescope_1, self.band_1 = make_band_toggles()
-        self.pipeline_1 = toggles(sorted(Pipelines.available_pipelines))
-        self.adjusts_1 = adjusts()
+        self.pipeline_1 = get_toggles(sorted(Pipelines.available_pipelines))
+        self.adjusts_1 = get_adjusts()
         self.telescope_2, self.band_2 = make_band_toggles()
-        self.pipeline_2 = toggles(sorted(Pipelines.available_pipelines))
-        self.adjusts_2 = adjusts()
-        self.verbose = toggles(verbose_display)
-        self.save_filename = adjusts("PDF path to save plot")
+        self.pipeline_2 = get_toggles(sorted(Pipelines.available_pipelines))
+        self.adjusts_2 = get_adjusts()
+        self.verbose = get_toggles(verbose_display)
+        self.save_filename = get_adjusts("PDF path to save plot")
 
         interact_manual(
             compare_telescopes_default,
@@ -284,6 +284,81 @@ class CompareTelescopes:
         )
 
 
+class CompareObservation:
+    def __init__(
+            self,
+            input_file,
+            verbosity='Overview',
+            save_filename=None,
+            ):
+        self.verbosity = verbosity
+        self._parse_yaml(input_file)
+        self._validate_attributes()
+
+    def _parse_yaml(self, input_file):
+        pass
+
+    def _check_attribute_in_set(self, attribute, attribute_name, valid_set):
+        if attribute not in valid_set:
+            raise ValueError(
+                f"{attribute_name} attribute '{attribute}' should be in {valid_set}."
+            )
+
+    def _valid_save_filename(self):
+        if self.save_filename is None:
+            return
+        try:
+            path = Path(self.save_filename)
+            if not path.parent.exists():
+                raise ValueError(f"save_filename attribute parent path '{path.parent}' does not exist.")
+            if path.suffix.lower() != '.pdf':
+                raise ValueError(f"save_filename attribute '{self.save_filename}' does not have a PDF extension.")
+        except (ValueError, TypeError):
+            raise ValueError(f"save_filename attribute '{self.save_filename}' is not a valid path.")
+
+    def _validate_attributes(self):
+        self._check_attribute_in_set(
+            self.telescope_1, "telescope_1", Telescopes.available_teles
+        )
+        self._check_attribute_in_set(
+            self.band_1,
+            "band_1",
+            Bands.telescope_bands[self.telescope_1]
+        )
+        self._check_attribute_in_set(
+            self.pipeline_1, "pipeline_1", Pipelines.available_pipelines
+        )
+        self._check_attribute_in_set(
+            self.telescope_2, "telescope_2", Telescopes.available_teles
+        )
+        self._check_attribute_in_set(
+            self.band_2,
+            "band_2",
+            Bands.telescope_bands[self.telescope_2]
+        )
+        self._check_attribute_in_set(
+            self.pipeline_2, "pipeline_2", Pipelines.available_pipelines
+        )
+        self._valid_save_filename()
+
+    def run(self):
+        # Make and check pipeline configuration
+        display(HTML('<font color="blue">Evaluating...</font>'))
+        cfg = PipelineConfig(telescope=self.telescope, pipeline=self.pipeline, band=self.band, adjusts=self.adjusts)
+        if not check_pipeline_config(cfg, pure_pipelines=True): return
+
+        # Determine which rows to calculate & show
+        result_map, result_titles, result_units = mk_result_map_rows(self.verbosity)
+
+        # Compute
+        detailed = (self.verbosity=='Debug')
+        result_values = _compute_results(cfg, result_map, detailed, detailed)
+        display(HTML('<font color="blue">Done computing. Results follow:</font>'))
+
+        # Show table of results
+        show_table('Computed Values', result_titles, result_values, result_units)
+
+
 def make_band_toggles():
     """Create connected telescope/band toggle widgets that only allow
     selection of valid combinations"""
@@ -291,8 +366,8 @@ def make_band_toggles():
     def _update_toggles(*_args):
         band_toggles.options = tuple(sorted(Bands.telescope_bands[telescope_toggles.value]))
 
-    telescope_toggles = toggles(sorted(Telescopes.available_teles)) #, description="telescope1")
-    band_toggles = toggles(sorted(Bands.available_bands))
+    telescope_toggles = get_toggles(sorted(Telescopes.available_teles)) #, description="telescope1")
+    band_toggles = get_toggles(sorted(Bands.available_bands))
     _update_toggles()
     telescope_toggles.observe(_update_toggles, 'value')
     return telescope_toggles, band_toggles
@@ -301,8 +376,8 @@ def make_band_toggles():
 def make_hpso_pipeline_toggles():
     """Create connected HPSO/pipeline toggle widgets that only allow selection
     of valid combinations"""
-    hpso_toggles = toggles(sorted(HPSOs.available_hpsos))
-    pipeline_toggles = toggles(sorted(Pipelines.available_pipelines))
+    hpso_toggles = get_toggles(sorted(HPSOs.available_hpsos))
+    pipeline_toggles = get_toggles(sorted(Pipelines.available_pipelines))
     def update_pipeline_toggles(*_args):
         pipeline_toggles.options = tuple(sorted(HPSOs.hpso_pipelines[hpso_toggles.value]))
     update_pipeline_toggles(); hpso_toggles.observe(update_pipeline_toggles, 'value')
