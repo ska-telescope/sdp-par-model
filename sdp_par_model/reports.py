@@ -323,17 +323,18 @@ class CompareObservation:
     def __init__(
             self,
             yaml_file,
-            custom_array,
-            array_config,
-            num_bins,
+            custom_array=False,
+            array_config=None,
+            num_bins=None,
             verbosity='Overview',
             save_filename=None,
             ):
         self.verbosity = verbosity
+        self.save_filename = save_filename
         self._parse_yaml(yaml_file, custom_array, array_config, num_bins)
         self._validate_attributes()
 
-    def _parse_yaml(yaml_file, custom_array=False, array_config=None, num_bins=None):
+    def _parse_yaml(self, yaml_file, custom_array=False, array_config=None, num_bins=None):
         
         # list_allowed_adjusts = ['Bmax',
         #                         'Ds',
@@ -351,39 +352,41 @@ class CompareObservation:
         #                         'baseline_bins',
         #                         'baseline_bin_distribution'
         # ]
-    
+
         with open(yaml_file, 'r') as file:
             config = yaml.safe_load(file)
             try:
                 telescope = config['telescope']
+                config.pop('telescope')
             except AttributeError:
                 print('Telescope must be specified.')
                 
             try:
                 band = config['band']
+                config.pop('band')
             except AttributeError:
                 print('Band must be specified.')
-                
+
             try:
-                pipelines = config['pipelines']
+                pipeline = config['pipeline']
+                config.pop('pipeline')
             except AttributeError:
                 print('Pipelines must be specified.')
             
-            if custom_array:
-                try:
-                    bmax = config['Bmax']
-                except AttributeError:
-                    print('Bmax required with custom_array=True')
-            
-            adjusts = dict(config).pop('telescope').pop('band').pop('pipelines')
+            adjusts = config
 
         if custom_array:
+            try:
+                bmax = adjusts['Bmax']
+            except KeyError:
+                raise KeyError("'Bmax' missing from yaml file.")
+
             if None == array_config:
                 raise ValueError('array_config file must be specified with custom_array = True')
     
             if None == num_bins:
                 raise ValueError('num_bins must be specified when using a custom array')
-            
+
             row_dtypes = np.dtype([('name', 'U10'), ('lon', 'f8'), ('lat', 'f8')])
             rows = np.loadtxt(array_config, usecols=(0, 1, 2), dtype=row_dtypes)
             assert rows[0]['name'] == 'Centre', 'First entry in layout file must be the centre of the array'
@@ -398,13 +401,23 @@ class CompareObservation:
     
                 fraction_of_bmax = (i+1) / num_bins
                 histogram_bin_edges.append(bmax * fraction_of_bmax)
-                
-            histogram_heights = positions_to_histogram(centre_antenna, all_other_antennas, histogram_bin_edges)
-            
+
             adjusts['baseline_bins'] = histogram_bin_edges
-            adjusts['baseline_bin_distribution'] = histogram_heights
-            
-        return (telescope, band, pipelines, adjusts)
+            adjusts['baseline_bin_distribution'] = positions_to_histogram(centre_antenna, all_other_antennas, histogram_bin_edges)
+        else:
+            try:
+                adjusts['baseline_bins'] = np.array(adjusts['baseline_bins'])
+            except KeyError:
+                raise KeyError("'baseline_bins' missing from yaml file.")
+            try:
+                adjusts['baseline_bin_distribution'] = np.array(adjusts['baseline_bin_distribution'])
+            except KeyError:
+                raise KeyError("'baseline_bin_distribution' missing from yaml file.")
+
+        self.telescope = telescope
+        self.band = band
+        self.pipeline = pipeline
+        self.adjusts = adjusts
 
     def _check_attribute_in_set(self, attribute, attribute_name, valid_set):
         if attribute not in valid_set:
@@ -426,26 +439,15 @@ class CompareObservation:
 
     def _validate_attributes(self):
         self._check_attribute_in_set(
-            self.telescope_1, "telescope_1", Telescopes.available_teles
+            self.telescope, "telescope", Telescopes.available_teles
         )
         self._check_attribute_in_set(
-            self.band_1,
-            "band_1",
-            Bands.telescope_bands[self.telescope_1]
+            self.band,
+            "band",
+            Bands.telescope_bands[self.telescope]
         )
         self._check_attribute_in_set(
-            self.pipeline_1, "pipeline_1", Pipelines.available_pipelines
-        )
-        self._check_attribute_in_set(
-            self.telescope_2, "telescope_2", Telescopes.available_teles
-        )
-        self._check_attribute_in_set(
-            self.band_2,
-            "band_2",
-            Bands.telescope_bands[self.telescope_2]
-        )
-        self._check_attribute_in_set(
-            self.pipeline_2, "pipeline_2", Pipelines.available_pipelines
+            self.pipeline, "pipeline", Pipelines.available_pipelines
         )
         self._valid_save_filename()
 
