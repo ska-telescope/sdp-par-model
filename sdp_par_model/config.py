@@ -103,6 +103,8 @@ class PipelineConfig:
 
         # Add modifiers
         for n, val in self.adjusts.items():
+            if isinstance(val, np.ndarray):
+                continue
             if n == 'Nf_max' and self.adjusts[n] == self.default_frequencies:
                 continue
             if n == 'Bmax' and self.adjusts[n] == self.max_allowed_baseline:
