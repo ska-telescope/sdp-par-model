@@ -1,14 +1,16 @@
 telescope: 'SKA1_Low'
 band: 'Low'
-pipeline: 'ICAL' # One of ['Ingest', 'RCAL', 'FastImg', 'ICAL', 'DPrepA', 'DPrepA_Image', 'DPrepB', 'DPrepC', 'DPrepD', 'PSS', 'PST', 'SinglePulse']
+pipeline: 'DPrepD' # One of ['Ingest', 'RCAL', 'FastImg', 'ICAL', 'DPrepA', 'DPrepA_Image', 'DPrepB', 'DPrepC', 'DPrepD', 'PSS', 'PST', 'SinglePulse']
 Bmax: 65000  # Actually constructed max baseline in *m*
 # Effective station diameter defined to be 38 metres in ECP-170049.
 Ds: 38  # station diameter in metres
 Na: 512  # number of stations
 Nbeam: 2  # number of beams
 Nf_max: 32768  # maximum number of channels
+Nf_out: 8192 # number of frequencies in the output image
 B_dump_ref: 65000  # m
 Tint_min: 0.9  # Minimum correlator integration time (dump time) in *sec* - in reference design
+Tint_out: 9.0 # Time averaging to apply during imaging
 freq_min: 50000000
 freq_max: 200000000
 Tobs: 18000
@@ -27,3 +29,4 @@ tICAL_G: 1.0 # Solution interval for Antenna gains
 tICAL_B: 3600.0  # Solution interval for Bandpass
 tICAL_I: 10.0 # Solution interval for Ionosphere
 NIpatches: 30 # Number of ionospheric patches to solve
+Npp: 4

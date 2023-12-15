@@ -1,0 +1,153 @@
+#--------- TELESCOPE CONFIGURATION PARAMETERS ----------
+
+telescope: 'SKA1_Mid'
+# Options: ['SKA1_Mid', 'SKA1_Low']
+
+#################################################
+
+band: 'Mid1'
+# Options for 'SKA1_Mid': ['Mid1', 'Mid2', 'Mid5a', 'Mid5b']
+# Options for 'SKA1_Low': ['Low']
+# Band must be specified because of how the parametric model is set up 
+# but can be adjusted using 'freq_min' and 'freq_max' (below)
+
+#################################################
+
+freq_max: 1050000000 
+# Maximum channel frequency in *Hz*
+
+#################################################
+
+freq_min: 350000000 
+# Lowest channel frequency in *Hz*
+
+#################################################
+
+Bmax: 150000
+# Maximum baseline in *m*
+# Bmax for SKA_Low: 65000
+# Bmax for SKA_Mid: 150000
+# Q: Does this need to be consistent with max(baseline_bins) or max(baselines(array_config))?
+# If no, does it act as a simple cutoff for the histogram?
+
+#################################################
+
+baseline_bins: [5000.0, 7500.0, 10000.0, 15000.0, 25000.0, 35000.0, 55000.0, 75000.0, 90000.0, 110000.0, 130000.0, 150000.0] 
+# Right edge of histogram bins for baseline length in *m*
+
+# Full SKA1_Mid telescope: [5000.0, 7500.0, 10000.0, 15000.0, 25000.0, 35000.0, 55000.0, 75000.0, 90000.0, 110000.0, 130000.0, 150000.0]
+
+# Full SKA1_Low telescope: [4062.5, 8125, 16250, 32500, 65000]
+
+# Should be omitted when using an array_config file
+
+#################################################
+
+baseline_bin_distribution: [61.3646961, 5.16553546, 2.87031760, 4.98937879,
+                            6.32609709, 4.63706544, 5.73545412, 5.50230558,
+                            1.80301539, 1.45070204, 0.108802653, 0.0466297083]
+# Percentage of baselines in each histogram bin
+
+# Full SKA1_Mid telescope: [61.3646961, 5.16553546, 2.87031760, 4.98937879, 6.32609709, 4.63706544, 5.73545412, 5.50230558, 1.80301539, 1.45070204, 0.108802653, 0.0466297083]
+
+# Full SKA1_Low telescope: [46.30065759, 13.06774736, 14.78360606, 18.58770454, 7.26028445]
+
+# Should be omitted when using an array_config file
+
+#################################################
+
+Ds: 13.5
+# dish diameter in *m*
+# SKA_Mid: Assume 13.5 as this matches the MeerKAT dishes
+# SKA_Low: 38
+
+#################################################
+
+Na: 197 
+# number of dishes / stations
+# SKA_Mid: 197 (64 MeerKAT + 133 SKA_Mid)
+# SKA_Low: 512
+
+#################################################
+
+Nf_max: 65536
+# maximum number of channels
+# SKA_Mid: 65536
+# SKA_Low: 65536
+
+#################################################
+
+Tint_min: 0.14  
+# Minimum correlator integration time (dump time) in *s* - in reference design
+# SKA_Mid: 0.14
+# SKA_Low: 0.9
+
+#################################################
+
+Tobs: 21600
+# Total observation time in *s*
+
+#################################################
+
+Tpoint: 21600
+# Pointing time *s*
+# For SKA_Mid should be equal to Tobs
+
+#################################################
+
+Texp: 21600
+# Total experiment time *s*
+# For SKA_Mid should be equal to Tobs
+
+#################################################
+
+Nbeam: 1  
+# number of beams
+# SKA_Mid: 1
+# SKA_Low: 1
+
+
+
+#--------- DATA PROCESSING/PRODUCT PARAMETERS ----------
+
+pipeline: 'ICAL'
+# Data processing step to be modelled
+# Options: ['Ingest', 'RCAL', 'FastImg', 'ICAL', 'DPrepA', 'DPrepA_Image', 'DPrepB', 'DPrepC', 'DPrepD', 'PSS', 'PST', 'SinglePulse']
+
+#################################################
+
+B_dump_ref: 150000  
+# in *m*
+# SKA_Mid: 150000
+# SKA_Low: 65000
+
+#################################################
+
+Tint_out: 1.4
+# Effective integration time from averaging applied during data processing
+# DPrepD: Tint_min
+
+tRCAL_G: 10.0
+# Real time solution interval for antenna gains
+
+#################################################
+
+tICAL_G: 1.0 
+# Solution interval for antenna gains
+
+#################################################
+
+tICAL_B: 3600.0
+# Solution interval for Bandpass
+
+#################################################
+
+tICAL_I: 10.0
+# Solution interval for Ionosphere
+
+#################################################
+
+NIpatches: 1
+# Number of ionospheric patches to solve
+# SKA_Mid: 1
+# SKA_Low 30

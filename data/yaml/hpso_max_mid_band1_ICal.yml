@@ -6,7 +6,6 @@ Ds: 13.5  # dish diameter in metres, assume 13.5 as this matches the MeerKAT dis
 Na: 197 # number of dishes (sum of MeerKAT and new dishes)
 Nbeam: 1  # number of beams
 Nf_max: 65536  # maximum number of channels
-Nf_out: 500
 B_dump_ref: 150000  # m
 Tint_min: 0.14  # Minimum correlator integration time (dump time) in *sec* - in reference design
 Tint_out: 1.4 # DPrepD only
