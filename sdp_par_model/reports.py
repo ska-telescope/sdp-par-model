@@ -3,13 +3,9 @@ This file contains methods for generating reports for SKA SDP
 parametric model data using especially matplotlib and Jupyter. Having
 these functions separate allows us to keep notebooks free of clutter.
 """
-from __future__ import print_function  # Makes Python-3 style print() function available in Python 2.x
-
 import re
-import warnings
-
 import csv
-from IPython.display import clear_output, display, HTML, FileLink
+from IPython.display import display, HTML, FileLink
 from ipywidgets import FloatProgress, ToggleButtons, Text, Layout, interact_manual
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pylab
@@ -22,7 +18,6 @@ import os
 from pathlib import Path
 import yaml
 
-
 try:
     import pymp
     HAVE_PYMP=True
@@ -30,12 +25,11 @@ except:
     HAVE_PYMP=False
 
 from .parameters.definitions import HPSOs, Pipelines, Telescopes, Bands, Constants as c
-from .parameters.container import ParameterContainer
 from . import evaluate as imp
 from .config import PipelineConfig
 
 # Possible verbosity levels
-verbose_display     = ['Overview', 'Details', 'Debug']
+VERBOSE_DISPLAY = ['Overview', 'Details', 'Debug']
 
 # Possible calculated results to display in the notebook
 RESULT_MAP = [
@@ -251,7 +245,7 @@ class CompareTelescopes:
         self.telescope_2, self.band_2 = make_band_toggles()
         self.pipeline_2 = get_toggles(sorted(Pipelines.available_pipelines))
         self.adjusts_2 = get_adjusts()
-        self.verbose = get_toggles(verbose_display)
+        self.verbose = get_toggles(VERBOSE_DISPLAY)
         self.save_filename = get_adjusts("PDF path to save plot")
 
         interact_manual(
@@ -285,38 +279,46 @@ class CompareTelescopes:
         )
 
 
-def positions_to_histogram(centre_antenna, all_other_antennas, histogram_bin_edges):
-
-    Rearth = 6371010.0/1000.0
-    degtorad = np.pi/180.0
-
-    array_x_centre = Rearth * np.cos(centre_antenna['lat']*degtorad) * np.cos(centre_antenna['lon']*degtorad)
-    array_y_centre = Rearth * np.cos(centre_antenna['lat']*degtorad) * np.sin(centre_antenna['lon']*degtorad)
-    array_z_centre = Rearth * np.sin(centre_antenna['lat']*degtorad)
-
-    Array_dx = []
-    Array_dy = []
-    Array_dz = []
-    Array_r = []
-
-    Number_positions = len(all_other_antennas)
-
-    for i in range(Number_positions):
-        Array_dx.append(Rearth*np.cos(all_other_antennas['lat'][i]*degtorad)*np.cos(all_other_antennas['lon'][i]*degtorad)-array_x_centre)
-        Array_dy.append(Rearth*np.cos(all_other_antennas['lat'][i]*degtorad)*np.sin(all_other_antennas['lon'][i]*degtorad)-array_y_centre)
-        Array_dz.append(Rearth*np.sin(all_other_antennas['lat'][i]*degtorad)-array_z_centre)
-        Array_r.append(np.sqrt(Array_dx[i]**2+Array_dy[i]**2+Array_dz[i]**2))
-
-    Baseline_lengths = []
-    for i in range(Number_positions):
-        for j in range(Number_positions):
-            if j > i:
-                blength=(np.sqrt((Array_dx[j]-Array_dx[i])**2 + (Array_dy[j]-Array_dy[i])**2 + (Array_dz[j]-Array_dz[i])**2))
-                Baseline_lengths.append(blength)
-
-    n, _ = np.histogram(Baseline_lengths, bins=histogram_bin_edges, density=False)
+def antenna_positions_to_baseline_histogram(centre_antenna: np.void, all_other_antennas: np.ndarray, histogram_bin_edges: np.ndarray) -> np.ndarray:
+    """Converts antenna positions to a histogram of baseline lengths.
     
-    return n
+    Args:
+        centre_antenna (np.void): latitude and longitude of the centre antenna.
+        all_other_antennas (np.ndarray): array of the latitude and longitude of all the other antennas.
+        histogram_bin_edges (np.ndarray): the histogram bin edges of the baselines include 0 and the maximum.
+
+    Returns:
+        histogram (np.ndarray): array of baseline length histogram values.
+    """
+    radius_earth = 6371010
+    degrees_to_radians = np.pi / 180.0
+
+    array_x_centre = radius_earth * np.cos(centre_antenna['lat']*degrees_to_radians) * np.cos(centre_antenna['lon']*degrees_to_radians)
+    array_y_centre = radius_earth * np.cos(centre_antenna['lat']*degrees_to_radians) * np.sin(centre_antenna['lon']*degrees_to_radians)
+    array_z_centre = radius_earth * np.sin(centre_antenna['lat']*degrees_to_radians)
+
+    array_dx = []
+    array_dy = []
+    array_dz = []
+    array_r = []
+
+    n_positions = len(all_other_antennas)
+
+    for i in range(n_positions):
+        array_dx.append(radius_earth*np.cos(all_other_antennas['lat'][i]*degrees_to_radians)*np.cos(all_other_antennas['lon'][i]*degrees_to_radians)-array_x_centre)
+        array_dy.append(radius_earth*np.cos(all_other_antennas['lat'][i]*degrees_to_radians)*np.sin(all_other_antennas['lon'][i]*degrees_to_radians)-array_y_centre)
+        array_dz.append(radius_earth*np.sin(all_other_antennas['lat'][i]*degrees_to_radians)-array_z_centre)
+        array_r.append(np.sqrt(array_dx[i]**2 + array_dy[i]**2 + array_dz[i]**2))
+
+    baseline_lengths = []
+    for i in range(n_positions):
+        for j in range(i + 1, n_positions):
+            baseline_length = np.sqrt((array_dx[j]-array_dx[i])**2 + (array_dy[j]-array_dy[i])**2 + (array_dz[j]-array_dz[i])**2)
+            baseline_lengths.append(baseline_length)
+
+    histogram = np.histogram(baseline_lengths, bins=histogram_bin_edges, density=False)[0].astype(np.float64)
+
+    return histogram
 
 
 class CompareObservation:
@@ -335,89 +337,53 @@ class CompareObservation:
         self._validate_attributes()
 
     def _parse_yaml(self, yaml_file, custom_array=False, array_config=None, num_bins=None):
-        
-        # list_allowed_adjusts = ['Bmax',
-        #                         'Ds',
-        #                         'Na',
-        #                         'Nbram',
-        #                         'Nf_max',
-        #                         'Tint_max',
-        #                         'B_dump_ref',
-        #                         'tRCAL_G',
-        #                         'tICAL_G',
-        #                         'tICAL_B',
-        #                         'tICAL_I',
-        #                         'NIpatches',
-        #                         'NIpatches',
-        #                         'baseline_bins',
-        #                         'baseline_bin_distribution'
-        # ]
-
         with open(yaml_file, 'r') as file:
             config = yaml.safe_load(file)
             try:
-                telescope = config['telescope']
+                self.telescope = config['telescope']
                 config.pop('telescope')
             except AttributeError:
                 print('Telescope must be specified.')
-                
             try:
-                band = config['band']
+                self.band = config['band']
                 config.pop('band')
             except AttributeError:
                 print('Band must be specified.')
-
             try:
-                pipeline = config['pipeline']
+                self.pipeline = config['pipeline']
                 config.pop('pipeline')
             except AttributeError:
                 print('Pipelines must be specified.')
-            
-            adjusts = config
+            self.adjusts = config
 
         if custom_array:
             try:
-                bmax = adjusts['Bmax']
+                bmax = self.adjusts['Bmax']
             except KeyError:
                 raise KeyError("'Bmax' missing from yaml file.")
-
             if None == array_config:
                 raise ValueError('array_config file must be specified with custom_array = True')
-    
             if None == num_bins:
                 raise ValueError('num_bins must be specified when using a custom array')
-
             row_dtypes = np.dtype([('name', 'U10'), ('lon', 'f8'), ('lat', 'f8')])
             rows = np.loadtxt(array_config, usecols=(0, 1, 2), dtype=row_dtypes)
             assert rows[0]['name'] == 'Centre', 'First entry in layout file must be the centre of the array'
+            
             centre_antenna = rows[0]
             all_other_antennas = rows[1:]
-            
-            histogram_bin_edges = []
-            for i in range(num_bins):
-                # Right bin edges range from bmax/num_bins to bmax
-                # Scaling bins in this way gives a more even distribution
-                # than using constant width
-    
-                fraction_of_bmax = (i+1) / num_bins
-                histogram_bin_edges.append(bmax * fraction_of_bmax)
 
-            adjusts['baseline_bins'] = histogram_bin_edges
-            adjusts['baseline_bin_distribution'] = positions_to_histogram(centre_antenna, all_other_antennas, histogram_bin_edges)
+            histogram_bin_edges = np.linspace(0, bmax, num_bins + 1, dtype=np.float64)
+            self.adjusts['baseline_bins'] = histogram_bin_edges[1:]
+            self.adjusts['baseline_bin_distribution'] = antenna_positions_to_baseline_histogram(centre_antenna, all_other_antennas, histogram_bin_edges)
         else:
             try:
-                adjusts['baseline_bins'] = np.array(adjusts['baseline_bins'])
+                self.adjusts['baseline_bins'] = np.array(self.adjusts['baseline_bins'])
             except KeyError:
                 raise KeyError("'baseline_bins' missing from yaml file.")
             try:
-                adjusts['baseline_bin_distribution'] = np.array(adjusts['baseline_bin_distribution'])
+                self.adjusts['baseline_bin_distribution'] = np.array(self.adjusts['baseline_bin_distribution'])
             except KeyError:
                 raise KeyError("'baseline_bin_distribution' missing from yaml file.")
-
-        self.telescope = telescope
-        self.band = band
-        self.pipeline = pipeline
-        self.adjusts = adjusts
 
     def _check_attribute_in_set(self, attribute, attribute_name, valid_set):
         if attribute not in valid_set:
