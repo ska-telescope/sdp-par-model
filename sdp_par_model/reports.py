@@ -10,13 +10,13 @@ from ipywidgets import FloatProgress, ToggleButtons, Text, Layout, interact_manu
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pylab
 from matplotlib import cm
-from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import sympy
 import subprocess
 import os
 from pathlib import Path
 import yaml
+from typing import Union, Optional
 
 try:
     import pymp
@@ -154,36 +154,62 @@ RESULT_MAP = [
 
 
 def get_toggles(opts, *args, **kwargs):
-    """ Helper for creating toggle buttons from given options """
+    """Creates toggle buttons from given options."""
     return ToggleButtons(options=opts, *args, **kwargs)
 
 
 def get_adjusts(placeholder='e.g. blcoal=False Bmax=40*1000 Nsource=100'):
-    """ Create widget for adjustments (with some suggestions) """
+    """Creates text widget for adjustments."""
     return Text(placeholder=placeholder, layout=Layout(width='95%'))
 
 
 class CompareTelescopes:
+    """Class for comparing two telescopes, including bands and pipelines.
+
+    Args:
+        telescope_1 (str): name of the first telescope.
+        band_1 (str): band name for the first telescope.
+        pipeline_1 (str): pipeline name for the first telescope.
+        telescope_2 (str): name of the second telescope.
+        band_2 (str): band name for the second telescope.
+        pipeline_2 (str): pipeline name for the second telescope.
+        adjusts_1 (optional, str): adjustments for the first telescope.
+        adjusts_2 (optional, str): adjustments for the second telescope.
+        verbose (optional, str): verbosity of output.
+        save_filename (optional, str): file path for saving plot as a PDF.
+
+    Attributes:
+        telescope_1 (str): name of the first telescope.
+        band_1 (str): band name for the first telescope.
+        pipeline_1 (str): pipeline name for the first telescope.
+        telescope_2 (str): name of the second telescope.
+        band_2 (str): band name for the second telescope.
+        pipeline_2 (str): pipeline name for the second telescope.
+        adjusts_1 (optional, str): adjustments for the first telescope.
+        adjusts_2 (optional, str): adjustments for the second telescope.
+        verbose (optional, str): verbosity of output.
+        save_filename (optional, str/Path): file path for saving plot as a PDF.
+    """
     def __init__(
             self,
-            telescope_1='SKA1_Low',
-            band_1='Low',
-            pipeline_1='DPrepA',
-            adjusts_1='',
-            telescope_2='SKA1_Low',
-            band_2='Low',
-            pipeline_2='DPrepA',
-            adjusts_2='',
-            verbose='Overview',
-            save_filename=None,
+            telescope_1: str='SKA1_Low',
+            band_1: str='Low',
+            pipeline_1: str='DPrepA',
+            telescope_2: str='SKA1_Low',
+            band_2: str='Low',
+            pipeline_2: str='DPrepA',
+            adjusts_1: str='',
+            adjusts_2: str='',
+            verbose: str='Overview',
+            save_filename: Optional[Union[str, Path]]=None,
             ):
         self.telescope_1 = telescope_1
         self.band_1 = band_1
         self.pipeline_1 = pipeline_1
-        self.adjusts_1 = adjusts_1
         self.telescope_2 = telescope_2
         self.band_2 = band_2
         self.pipeline_2 = pipeline_2
+        self.adjusts_1 = adjusts_1
         self.adjusts_2 = adjusts_2
         self.verbose = verbose
         self.save_filename = save_filename
@@ -232,7 +258,12 @@ class CompareTelescopes:
         )
         self._valid_save_filename()
 
-    def run(self, interactive=True):
+    def run(self, interactive: bool=True) -> None:
+        """Compares the telescopes.
+        
+        Args:
+            interactive (bool): if True, interactive widgets are shown to select the values.
+        """
         if interactive:
             self._interactive_run()
         else:
@@ -321,19 +352,33 @@ def antenna_positions_to_baseline_histogram(centre_antenna: np.void, all_other_a
     return histogram
 
 
-class CompareObservation:
+class CustomObservation:
+    """Class for computing results for a custom observation.
+
+    Args:
+        yaml_file (str/Path): yaml file path which contains the custom observation attributes.
+        custom_array (optional, bool): if True, a custom telescope array is used from the array_txt_file. 
+        array_txt_file (optional, str): txt file path which contains the lat and lng coordinates for each antenna in the array.
+        num_bins (optional, int): the number of histogram bins used if using a custom array.
+        verbose (optional, str): verbosity of output.
+
+    Attributes:
+        telescope (str): name of the telescope.
+        band (str): name of the band.
+        pipeline (str): pipeline name for the first telescope.
+        adjusts (optional, str): adjustments for the first telescope.
+        verbose (optional, str): verbosity of output.
+    """
     def __init__(
             self,
-            yaml_file,
-            custom_array=False,
-            array_config=None,
-            num_bins=None,
-            verbosity='Overview',
-            save_filename=None,
+            yaml_file: Union[str, Path],
+            custom_array: bool=False,
+            array_txt_file: Optional[Union[str, Path]]=None,
+            num_bins: Optional[int]=None,
+            verbosity: str='Overview',
             ):
         self.verbosity = verbosity
-        self.save_filename = save_filename
-        self._parse_yaml(yaml_file, custom_array, array_config, num_bins)
+        self._parse_yaml(yaml_file, custom_array, array_txt_file, num_bins)
         self._validate_attributes()
 
     def _parse_yaml(self, yaml_file, custom_array=False, array_config=None, num_bins=None):
@@ -361,9 +406,9 @@ class CompareObservation:
                 bmax = self.adjusts['Bmax']
             except KeyError:
                 raise KeyError("'Bmax' missing from yaml file.")
-            if None == array_config:
+            if not array_config:
                 raise ValueError('array_config file must be specified with custom_array = True')
-            if None == num_bins:
+            if not num_bins:
                 raise ValueError('num_bins must be specified when using a custom array')
             row_dtypes = np.dtype([('name', 'U10'), ('lon', 'f8'), ('lat', 'f8')])
             rows = np.loadtxt(array_config, usecols=(0, 1, 2), dtype=row_dtypes)
@@ -391,18 +436,6 @@ class CompareObservation:
                 f"{attribute_name} attribute '{attribute}' should be in {valid_set}."
             )
 
-    def _valid_save_filename(self):
-        if self.save_filename is None:
-            return
-        try:
-            path = Path(self.save_filename)
-            if not path.parent.exists():
-                raise ValueError(f"save_filename attribute parent path '{path.parent}' does not exist.")
-            if path.suffix.lower() != '.pdf':
-                raise ValueError(f"save_filename attribute '{self.save_filename}' does not have a PDF extension.")
-        except (ValueError, TypeError):
-            raise ValueError(f"save_filename attribute '{self.save_filename}' is not a valid path.")
-
     def _validate_attributes(self):
         self._check_attribute_in_set(
             self.telescope, "telescope", Telescopes.available_teles
@@ -415,23 +448,24 @@ class CompareObservation:
         self._check_attribute_in_set(
             self.pipeline, "pipeline", Pipelines.available_pipelines
         )
-        self._valid_save_filename()
 
-    def run(self):
-        # Make and check pipeline configuration
+    def run(self) -> None:
+        """Computes the results then displays them in a table."""
+        # Make pipeline configuration then check it.
         display(HTML('<font color="blue">Evaluating...</font>'))
-        cfg = PipelineConfig(telescope=self.telescope, pipeline=self.pipeline, band=self.band, adjusts=self.adjusts)
-        if not check_pipeline_config(cfg, pure_pipelines=True): return
+        pipeline_config = PipelineConfig(telescope=self.telescope, pipeline=self.pipeline, band=self.band, adjusts=self.adjusts)
+        if not check_pipeline_config(pipeline_config, pure_pipelines=True):
+            return
 
-        # Determine which rows to calculate & show
+        # Determine which rows to calculate.
         result_map, result_titles, result_units = mk_result_map_rows(self.verbosity)
 
-        # Compute
+        # Compute results.
         detailed = (self.verbosity=='Debug')
-        result_values = _compute_results(cfg, result_map, detailed, detailed)
+        result_values = _compute_results(pipeline_config, result_map, detailed, detailed)
         display(HTML('<font color="blue">Done computing. Results follow:</font>'))
 
-        # Show table of results
+        # Show table of results.
         show_table('Computed Values', result_titles, result_values, result_units)
 
 

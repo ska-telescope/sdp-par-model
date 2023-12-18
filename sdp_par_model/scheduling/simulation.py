@@ -15,6 +15,7 @@ import sys
 
 
 class ScheduleSimulation:
+    """Class for simulating the schedule within a Jupyter notebook."""
     def __init__(self):
         pass
 
