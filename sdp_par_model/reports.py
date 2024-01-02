@@ -35,6 +35,7 @@ VERBOSE_DISPLAY = ['Overview', 'Details', 'Debug']
 RESULT_MAP = [
     # Table Row Title              Unit          Default? Sum?   Expression
     ('-- Parameters --',           '',           True,    False, lambda tp: ''                    ),
+    ('Configuration Name',         '',           True,    False, lambda tp: tp.name               ),
     ('Telescope',                  '',           True,    False, lambda tp: tp.telescope          ),
     ('Band',                       '',           True,    False, lambda tp: str(tp.band) if tp.band is not None else ''),
     ('Frequency Min',              'GHz',        False,   False, lambda tp: tp.freq_min/c.giga    ),
@@ -468,6 +469,8 @@ class CustomObservation:
         # Show table of results.
         show_table('Computed Values', result_titles, result_values, result_units)
 
+    def get_config_params(self):
+        return (self.telescope, self.pipeline, self.band, self.adjusts)
 
 def make_band_toggles():
     """Create connected telescope/band toggle widgets that only allow
@@ -1109,6 +1112,58 @@ def write_csv_hpsos(filename, hpsos, adjusts="", verbose=False, parallel=0):
     _write_csv(filename, results, rows)
 
 
+def write_csv_custom(infiles, outfile, custom_arrays=None, array_configs=None, list_num_bins=None, verbose=False, parallel=0):
+    """
+    Evaluates the configurations specified in the input yaml files and dumps the
+    result as a CSV file.
+    """
+    
+    # Set default behaviour when custom_arrays and array_configs aren't specified
+    if array_configs is None:
+        array_configs = []
+    if list_num_bins is None:
+        list_num_bins = []
+    if custom_arrays is None:
+        custom_arrays = []
+        for i in range(len(infiles)):
+            custom_arrays.append(False)
+
+    # Check function inputs are correct
+    assert isinstance(infiles, list) and isinstance(custom_arrays, list) and isinstance(custom_arrays, list) and isinstance(list_num_bins, list),"'infiles', 'custom_arrays', 'array_configs', 'list_num_bins' must be lists."
+    assert len(infiles) == len(custom_arrays),"'infiles' and 'custom_arrays' must have the same length."
+    assert custom_arrays.count(True) == len(array_configs),"Must specify one array_config file per True value in 'custom_arrays'."
+    assert custom_arrays.count(True) == len(list_num_bins),"Must specify num_bins per True value in 'custom_arrays'."
+
+    # Make configuration list
+    configs = []
+    for infile in infiles:
+        telescope, pipeline, band, adjusts = CustomObservation(infile).get_config_params()
+        
+        if "pipelines" in adjusts.keys():
+            pipelines = adjusts.get("pipelines", None)
+            assert isinstance(pipelines, list)
+        else:
+            pipelines = [adjusts.get("pipeline")]
+            
+            
+        for pipeline in pipelines:
+            cfg = PipelineConfig(telescope=telescope, band=band,
+                                     pipeline=pipeline,
+                                     adjusts=adjusts)
+
+            # Check whether the configuration is valid
+            (okay, msgs) = cfg.is_valid()
+            if okay:
+                configs.append(cfg)
+    
+    # Calculate
+    rows = RESULT_MAP # Everything - hardcoded for now
+    results = _batch_compute_results(configs, rows, parallel, verbose, True)
+
+    # Write CSV
+    _write_csv(outfile, results, rows)
+
+
 def _compute_results(pipelineConfig, result_map, verbose=False, detailed=False, adjusts={}):
     """A private method for computing a set of results.
 
@@ -1341,6 +1396,25 @@ def lookup_csv(results, column_name, row_name,
             return val
 
     return None
+
+def lookup_csv_observation_names(results, telescope):
+    telescopes = np.array(list(results.get("telescope").values()))
+    compatible_observation_indices = np.where(telescopes == telescope)[0]
+    
+    observation_names = np.unique(results.get("configuration name").values())
+            
+    return observation_names
+
+def lookup_csv_config_names(results, observation_name):
+    
+    observation_names = np.array(list(results.get("configuration name").values()))
+    
+    column_indices = np.where(observation_names == observation_name)[0]
+    
+    config_names = np.array(list(results.get('pipeline').keys()))[column_indices]
+            
+    return config_names
+        
 
 def strip_csv(csv, ignore_units=True, ignore_modifiers=True):
 

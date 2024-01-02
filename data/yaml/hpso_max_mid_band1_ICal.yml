@@ -1,6 +1,8 @@
+name: 'max_mid_band1'
 telescope: 'SKA1_Mid'
 band: 'Mid1'
 pipeline: 'ICAL' # One of ['Ingest', 'RCAL', 'FastImg', 'ICAL', 'DPrepA', 'DPrepA_Image', 'DPrepB', 'DPrepC', 'DPrepD', 'PSS', 'PST', 'SinglePulse']
+pipelines: ['Ingest', 'RCAL', 'FastImg', 'ICAL', 'DPrepA', 'DPrepA_Image', 'DPrepB', 'DPrepC', 'DPrepD']
 Bmax: 150000  # Actually constructed max baseline in *m*
 Ds: 13.5  # dish diameter in metres, assume 13.5 as this matches the MeerKAT dishes
 Na: 197 # number of dishes (sum of MeerKAT and new dishes)
