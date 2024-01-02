@@ -376,9 +376,9 @@ class CustomObservation:
             custom_array: bool=False,
             array_txt_file: Optional[Union[str, Path]]=None,
             num_bins: Optional[int]=None,
-            verbosity: str='Overview',
+            verbose: str='Overview',
             ):
-        self.verbosity = verbosity
+        self.verbose = verbose
         self._parse_yaml(yaml_file, custom_array, array_txt_file, num_bins)
         self._validate_attributes()
 
@@ -459,10 +459,10 @@ class CustomObservation:
             return
 
         # Determine which rows to calculate.
-        result_map, result_titles, result_units = mk_result_map_rows(self.verbosity)
+        result_map, result_titles, result_units = mk_result_map_rows(self.verbose)
 
         # Compute results.
-        detailed = (self.verbosity=='Debug')
+        detailed = (self.verbose=='Debug')
         result_values = _compute_results(pipeline_config, result_map, detailed, detailed)
         display(HTML('<font color="blue">Done computing. Results follow:</font>'))
 
