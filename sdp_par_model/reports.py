@@ -1116,6 +1116,12 @@ def write_csv_custom(infiles, outfile, custom_arrays=None, array_configs=None, l
     """
     Evaluates the configurations specified in the input yaml files and dumps the
     result as a CSV file.
+    
+    :param infiles: `list` of `str`. List of yaml files which contain the model parameters for a pipeline step in an observation.
+    :param outfile: `str`. File name for the output csv.
+    :param custom_arrays: `list` of `Bool`. For each infile; True means a custom telescope array is used, False means histogram bins are read from the yaml. None assumes all False.
+    :param array_configs: `list` of `str`. List of txt files containing custom telescope configurations. Required when a True value exists in `custom_arrays`.
+    :param list_num_bins: `list` of `int`. Number of bins to use in the histogram calculated from a custom telescope configuration.
     """
     
     # Set default behaviour when custom_arrays and array_configs aren't specified
@@ -1139,22 +1145,14 @@ def write_csv_custom(infiles, outfile, custom_arrays=None, array_configs=None, l
     for infile in infiles:
         telescope, pipeline, band, adjusts = CustomObservation(infile).get_config_params()
         
-        if "pipelines" in adjusts.keys():
-            pipelines = adjusts.get("pipelines", None)
-            assert isinstance(pipelines, list)
-        else:
-            pipelines = [adjusts.get("pipeline")]
-            
-            
-        for pipeline in pipelines:
-            cfg = PipelineConfig(telescope=telescope, band=band,
-                                     pipeline=pipeline,
-                                     adjusts=adjusts)
+        cfg = PipelineConfig(telescope=telescope, band=band,
+                                pipeline=pipeline,
+                                adjusts=adjusts)
 
-            # Check whether the configuration is valid
-            (okay, msgs) = cfg.is_valid()
-            if okay:
-                configs.append(cfg)
+        # Check whether the configuration is valid
+        (okay, msgs) = cfg.is_valid()
+        if okay:
+            configs.append(cfg)
     
     # Calculate
     rows = RESULT_MAP # Everything - hardcoded for now
@@ -1398,23 +1396,29 @@ def lookup_csv(results, column_name, row_name,
     return None
 
 def lookup_csv_observation_names(results, telescope):
-    telescopes = np.array(list(results.get("telescope").values()))
+    # Get "telescope" and "configuration name" rows from csv
+    telescopes = np.array([*results.get("telescope").values()])
+    all_observation_names = np.array([*results.get("configuration name").values()])
+    
+    # Get the csv column indices that have the correct telescope
     compatible_observation_indices = np.where(telescopes == telescope)[0]
+    # Get the unique "configuration name" values which use the correct telescope
+    unique_observation_names = np.unique(all_observation_names[compatible_observation_indices])
     
-    observation_names = np.unique(results.get("configuration name").values())
-            
-    return observation_names
+    return unique_observation_names
 
-def lookup_csv_config_names(results, observation_name):
+def lookup_observation_pipelines_csv(results, observation_name):
+    # Get "configuration name" and "pipeline" rows from csv
+    all_observation_names = np.array([*results.get("configuration name").values()])
+    all_pipelines = np.array([*results.get("pipeline").values()])
     
-    observation_names = np.array(list(results.get("configuration name").values()))
+    # Get the column indices which correspond with observation_name
+    observation_column_indices = np.where(all_observation_names == observation_name)[0]
     
-    column_indices = np.where(observation_names == observation_name)[0]
-    
-    config_names = np.array(list(results.get('pipeline').keys()))[column_indices]
+    # Get all pipelines in the observation
+    pipelines_in_observation = all_pipelines[observation_column_indices]
             
-    return config_names
-        
+    return pipelines_in_observation, observation_column_indices
 
 def strip_csv(csv, ignore_units=True, ignore_modifiers=True):
 
@@ -1565,7 +1569,7 @@ def compare_csv(result_file, ref_file,
     if return_diffs:
         return all_diff_sums
 
-def find_csvs(csv_path = "../data/csv"):
+def find_csvs(csv_path = os.path.join(os.pardir, "data", "csv")):
     """
     Returns a map of all CSV files currently checked into the Git repository.
 

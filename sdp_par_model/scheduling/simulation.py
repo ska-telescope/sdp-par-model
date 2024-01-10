@@ -98,61 +98,79 @@ class ScheduleSimulation:
         if not csv_file:
             self.use_hpso = True
             csv_file = reports.newest_csv(reports.find_csvs())
+            self.csv = reports.strip_csv(reports.read_csv(csv_file))
         else:
             self.use_hpso = False
-        self.csv = reports.strip_csv(reports.read_csv(csv_file))
-
+            self.csv = reports.strip_csv(reports.read_csv(csv_file), ignore_modifiers=False)
+            
+    
     def computational_capacity(self):
         realtime_flops = 0
         realtime_flops_hpso = None
         
+        # Containers to store the pipelines in an observation
+        # and an observation indentifier.
+        # if use_hpso, observation identifier is the csv column name
+        # else it is a column index
+        self.pipelines_in_observations = []
+        self.pipeline_identifiers = []
+        
         if self.use_hpso:
-            observations = []
-            pipelines_in_observations = []
-            names_in_observations = []
+            self.observations = []
             for hpso in HPSOs.all_hpsos:
                 if HPSOs.hpso_telescopes[hpso] != self.telescope:
                     continue
                 
                 
-                observations.append(hpso)
+                self.observations.append(hpso)
                 config_names = []
                 pipelines = []
                 for pipeline in HPSOs.hpso_pipelines[hpso]:
                     pipelines.append(pipeline)
                     config_names.append(PipelineConfig(hpso=hpso, pipeline=pipeline).describe())
                     
-                pipelines_in_observations.append(pipelines)
-                names_in_observations.append(config_names)
-            
+                self.pipelines_in_observations.append(pipelines)
+                self.pipeline_identifiers.append(config_names)
             
         else:
-            #######################################################
-            # TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO
-            observations = reports.lookup_csv_observation_names(self.csv, self.telescope)
-            pipelines_in_observations = []
-            names_in_observations = []
-            for observation in observations:
-                #######################################################
-                # TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO
-                pipelines, names = reports.lookup_csv_config_names(self.csv, observation)
-                pipelines_in_observations.append(pipelines)
-                names_in_observations.append(names)
+            self.observations = reports.lookup_csv_observation_names(self.csv, self.telescope)
+            self.pipelines_in_observations = []
+            self.pipeline_identifiers = []
+            for observation in self.observations:
+                pipelines, column_indices = reports.lookup_observation_pipelines_csv(self.csv, observation)
+                self.pipelines_in_observations.append(pipelines)
+                self.pipeline_identifiers.append(column_indices)
+                
         
-        for observation, pipelines, names in zip(observations, pipelines_in_observations, names_in_observations):
+        for observation, pipelines, identifiers in zip(self.observations, self.pipelines_in_observations, self.pipeline_identifiers):
             # Sum FLOP rates over involved real-time pipelines
             rt_flops = 0
-            for pipeline, name in zip(pipelines, names):
-                flops = int(
-                    math.ceil(
-                        float(
-                            reports.lookup_csv(
-                                self.csv, name, "Total Compute Requirement"
+            for pipeline, identifier in zip(pipelines, identifiers):
+                # Inefficiency: if statement inside loop
+                if self.use_hpso:
+                    flops = int(
+                        math.ceil(
+                            float(
+                                reports.lookup_csv(
+                                    self.csv, identifier, "Total Compute Requirement"
+                                )
                             )
+                            * Constants.peta
                         )
-                        * Constants.peta
                     )
-                )
+                
+                else:
+                    # Inefficiency: Does look up every iteration. 
+                    # All CSVs are currently small enough for this to be unimportant
+                    flops = int(
+                        math.ceil(
+                            float(
+                                [*self.csv.get("total compute requirement").values()][identifier]
+                            )
+                            * Constants.peta
+                        )
+                    )
+                    
                 if pipeline in Pipelines.realtime:
                     rt_flops += flops
             # Dominates?
@@ -188,80 +206,42 @@ class ScheduleSimulation:
             graph.Resources.DeliveryRate: self.delivery_rate,
             graph.Resources.LTSRate: self.lts_rate,
         }
-        
-    def computational_capacity_old(self):
-        realtime_flops = 0
-        realtime_flops_hpso = None
-        for hpso in HPSOs.all_hpsos:
-            if HPSOs.hpso_telescopes[hpso] != self.telescope:
-                continue
-            # Sum FLOP rates over involved real-time pipelines
-            rt_flops = 0
-            for pipeline in HPSOs.hpso_pipelines[hpso]:
-                cfg_name = PipelineConfig(hpso=hpso, pipeline=pipeline).describe()
-                flops = int(
-                    math.ceil(
-                        float(
-                            reports.lookup_csv(
-                                self.csv, cfg_name, "Total Compute Requirement"
-                            )
-                        )
-                        * Constants.peta
-                    )
-                )
-                if pipeline in Pipelines.realtime:
-                    rt_flops += flops
-            # Dominates?
-            if rt_flops > realtime_flops:
-                realtime_flops = rt_flops
-                realtime_flops_hpso = hpso
-
-        # Show
-        print("Realtime processing requirements:")
-        batch_flops = self.total_flops - realtime_flops
-        print(
-            " {:.3f} Pflop/s real-time (from {}), {:.3f} Pflop/s left for batch".format(
-                realtime_flops / Constants.peta,
-                realtime_flops_hpso,
-                batch_flops / Constants.peta,
-            )
-        )
-
-        self.capacities = {
-            graph.Resources.Observatory: 1,
-            graph.Resources.BatchCompute: batch_flops,
-            graph.Resources.RealtimeCompute: realtime_flops,
-            graph.Resources.InputBuffer: self.input_buffer_size,
-            graph.Resources.HotBuffer: self.hot_buffer_size,
-            graph.Resources.OutputBuffer: self.delivery_buffer_size,
-            graph.Resources.HotBufferRate: self.hot_rate_per_size
-            * self.hot_buffer_size,
-            graph.Resources.InputBufferRate: self.cold_rate_per_size
-            * self.input_buffer_size,
-            graph.Resources.OutputBufferRate: self.cold_rate_per_size
-            * self.delivery_buffer_size,
-            graph.Resources.IngestRate: self.ingest_rate,
-            graph.Resources.DeliveryRate: self.delivery_rate,
-            graph.Resources.LTSRate: self.lts_rate,
-        }
 
 
     def generate_graph(self, Tsequence, Tobs_min, batch_parallelism, display_node_info):
         self.Tobs_min = Tobs_min
         self.batch_parallelism = batch_parallelism
-        self.hpso_sequence, self.Tobs_sum = graph.make_hpso_sequence(
-            self.telescope, Tsequence, Tobs_min, verbose=True
-        )
+
+        if self.use_hpso:
+            self.observation_sequence, self.Tobs_sum = graph.make_hpso_sequence(
+                self.telescope, Tsequence, Tobs_min, verbose=True
+            )
+        else:
+            self.observation_sequence, self.Tobs_sum = graph.make_observation_sequence(
+                self.csv, Tsequence, Tobs_min, self.observations, self.pipelines_in_observations, self.pipeline_identifiers, verbose=True
+            )
         print("{:.3f} d total".format(self.Tobs_sum / 3600 / 24))
-        random.shuffle(self.hpso_sequence)
+        random.shuffle(self.observation_sequence)
         t = time.time()
-        self.nodes = graph.hpso_sequence_to_nodes(
-            self.csv,
-            self.hpso_sequence,
-            self.capacities,
-            Tobs_min,
-            batch_parallelism=batch_parallelism,
-        )
+        if self.use_hpso:
+            self.nodes = graph.hpso_sequence_to_nodes(
+                self.csv,
+                self.observation_sequence,
+                self.capacities,
+                Tobs_min,
+                batch_parallelism=batch_parallelism,
+            )
+        else:
+            self.nodes = graph.observation_sequence_to_nodes(
+                self.csv,
+                self.observations, 
+                self.pipelines_in_observations, 
+                self.pipeline_identifiers,
+                self.observation_sequence,
+                self.capacities,
+                Tobs_min,
+                batch_parallelism=batch_parallelism,
+            )
         print(
             "Multi-graph has {} nodes (generation took {:.3f}s)".format(
                 len(self.nodes), time.time() - t
@@ -405,18 +385,35 @@ class ScheduleSimulation:
             cost_change=False,
         ):
             # Calculate
-            lengths = efficiency.determine_durations_batch(
-                self.csv,
-                self.hpso_sequence,
-                costs,
-                self.capacities,
-                self.update_rates,
-                percent,
-                percent_step,
-                count,
-                Tobs_min=self.Tobs_min,
-                batch_parallelism=batch_parallelism,
-            )
+            if self.use_hpso:
+                lengths = efficiency.determine_durations_batch(
+                    self.csv,
+                    self.observation_sequence,
+                    costs,
+                    self.capacities,
+                    self.update_rates,
+                    percent,
+                    percent_step,
+                    count,
+                    Tobs_min=self.Tobs_min,
+                    batch_parallelism=batch_parallelism,
+                )
+            else:
+                lengths = efficiency.determine_durations_batch_custom(
+                    self.csv,
+                    self.observations,
+                    self.pipelines_in_observations,
+                    self.pipeline_identifiers,
+                    self.observation_sequence,
+                    costs,
+                    self.capacities,
+                    self.update_rates,
+                    percent,
+                    percent_step,
+                    count,
+                    Tobs_min=self.Tobs_min,
+                    batch_parallelism=batch_parallelism,
+                )
             # Make graph
             graph_count = len(costs)
             pylab.figure(figsize=(8, graph_count * 4))
