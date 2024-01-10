@@ -19,7 +19,7 @@ freq_max: 1050000000
 # Maximum channel frequency in *Hz*
 
 
-freq_min: 350000000 
+freq_min: 350000000
 # Lowest channel frequency in *Hz*
 
 
@@ -47,9 +47,7 @@ baseline_bins: [5000.0, 7500.0, 10000.0, 15000.0, 25000.0, 35000.0, 55000.0, 750
 # Should be omitted when using an array_config file
 
 
-baseline_bin_distribution: [61.3646961, 5.16553546, 2.87031760, 4.98937879,
-                            6.32609709, 4.63706544, 5.73545412, 5.50230558,
-                            1.80301539, 1.45070204, 0.108802653, 0.0466297083]
+baseline_bin_distribution: [61.3646961, 5.16553546, 2.87031760, 4.98937879, 6.32609709, 4.63706544, 5.73545412, 5.50230558, 1.80301539, 1.45070204, 0.108802653, 0.0466297083]
 # Percentage of baselines in each histogram bin
 
 # Full SKA1_Mid telescope: [61.3646961, 5.16553546, 2.87031760, 4.98937879, 6.32609709, 4.63706544, 5.73545412, 5.50230558, 1.80301539, 1.45070204, 0.108802653, 0.0466297083]
@@ -83,16 +81,16 @@ Tint_min: 0.14
 # SKA_Low: 0.9
 
 
-Tobs: 21600
+Tobs: 600
 # Total observation time in *s*
 
 
-Tpoint: 21600
+Tpoint: 600
 # Pointing time *s*
 # For SKA_Mid should be equal to Tobs
 
 
-Texp: 21600
+Texp: 2880000.0
 # Total experiment time *s*
 # For SKA_Mid should be equal to Tobs
 
@@ -109,9 +107,6 @@ Nbeam: 1
 pipeline: 'ICAL'
 # Data processing step to be modelled
 # Options: ['Ingest', 'RCAL', 'FastImg', 'ICAL', 'DPrepA', 'DPrepA_Image', 'DPrepB', 'DPrepC', 'DPrepD', 'PSS', 'PST', 'SinglePulse']
-
-pipelines: ['Ingest', 'RCAL', 'FastImg', 'ICAL', 'DPrepA', 'DPrepA_Image', 'DPrepB', 'DPrepC', 'DPrepD', 'PSS', 'PST', 'SinglePulse']
-# List of data processing steps. Used to export custom CSVs used in 
 
 
 Tint_out: 1.4

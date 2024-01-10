@@ -2,7 +2,6 @@ name: 'hpso01'
 telescope: 'SKA1_Low'
 band: 'Low'
 pipeline: 'DPrepD' # One of ['Ingest', 'RCAL', 'FastImg', 'ICAL', 'DPrepA', 'DPrepA_Image', 'DPrepB', 'DPrepC', 'DPrepD', 'PSS', 'PST', 'SinglePulse']
-pipelines: ['Ingest', 'RCAL', 'FastImg', 'ICAL', 'DPrepA', 'DPrepB', 'DPrepC', 'DPrepD']
 Bmax: 65000  # Actually constructed max baseline in *m*
 # Effective station diameter defined to be 38 metres in ECP-170049.
 Ds: 38  # station diameter in metres

@@ -1,20 +1,18 @@
 name: 'max_mid_band1'
 telescope: 'SKA1_Mid'
 band: 'Mid1'
-pipeline: 'ICAL' # One of ['Ingest', 'RCAL', 'FastImg', 'ICAL', 'DPrepA', 'DPrepA_Image', 'DPrepB', 'DPrepC', 'DPrepD', 'PSS', 'PST', 'SinglePulse']
-Bmax: 150000  # Actually constructed max baseline in *m*
+Bmax: 35000  # Actually constructed max baseline in *m*
 Ds: 13.5  # dish diameter in metres, assume 13.5 as this matches the MeerKAT dishes
-Na: 197 # number of dishes (sum of MeerKAT and new dishes)
+Na: 100 # number of dishes (sum of MeerKAT and new dishes)
 Nbeam: 1  # number of beams
-Nf_max: 65536  # maximum number of channels
-B_dump_ref: 150000  # m
+Nf_max: 30000  # maximum number of channels
+B_dump_ref: 75000  # m
 Tint_min: 0.14  # Minimum correlator integration time (dump time) in *sec* - in reference design
-Tint_out: 1.4 # DPrepD only
-freq_min: 350000000
-freq_max: 1050000000
-Tobs: 21600
-Tpoint: 21600
-Texp: 21600
+freq_min: 750000000
+freq_max: 950000000
+Tobs: 28800
+Tpoint: 3600000
+Texp: 18000000
 # Baseline length distribution calculated from layout in
 # SKA-TEL-SKO-0000422, Rev 03 (corresponding to ECP-170049),
 # see Absolute_Baseline_length_distribution.ipynb
@@ -30,4 +28,8 @@ tICAL_G: 1.0 # Solution interval for Antenna gains
 tICAL_B: 3600.0  # Solution interval for Bandpass
 tICAL_I: 10.0 # Solution interval for Ionosphere
 NIpatches: 1 # Number of ionospheric patches to solve
-Qfov: 2.7
+
+# Pipeline specific options
+pipeline: 'DPrepD' # One of ['Ingest', 'RCAL', 'FastImg', 'ICAL', 'DPrepA', 'DPrepA_Image', 'DPrepB', 'DPrepC', 'DPrepD', 'PSS', 'PST', 'SinglePulse']
+Nf_out: 16383
+Tint_out: 1.4 # DPrepD only
