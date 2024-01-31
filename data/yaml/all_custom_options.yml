@@ -114,19 +114,19 @@ Tint_out: 1.4
 # DPrepD: Tint_min
 
 tRCAL_G: 10.0
-# Real time solution interval for antenna gains
+# Real time solution interval for antenna gains *s*
 
 
 tICAL_G: 1.0 
-# Solution interval for antenna gains
+# Solution interval for antenna gains *s*
 
 
 tICAL_B: 3600.0
-# Solution interval for Bandpass
+# Solution interval for Bandpass *s*
 
 
 tICAL_I: 10.0
-# Solution interval for Ionosphere
+# Solution interval for Ionosphere *s*
 
 
 NIpatches: 1
@@ -185,6 +185,9 @@ Ntiedbeam: 1500
 # SKA_Mid: 1500
 # SKA_Low: 500
 # PST: 16
+
+Qfov: 2.7 
+# Field of view quotient
 
 
 on_the_fly: False
@@ -257,3 +260,11 @@ Npatch: 4097 # Number of pixels in clean patch
 Tsolve: 600 # Calibration solution process frequency (task granularity)
 Tsnap_min: 0.1
 Tsnap: 600
+
+
+array_config_file: '../data/layouts/SKA1_Mid_rev_05_prop.txt' 
+# If specified, baseline_bins and baseline_bin_distribution will be overwritten. If specified, array_config_bins nust also be specified
+
+array_config_bins: 12
+# Number of baseline bins to be used when calculating the histogram of baselines. 
+# Increasing the number of bins slows down the parametric model

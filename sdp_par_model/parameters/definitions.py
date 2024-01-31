@@ -1278,3 +1278,151 @@ def apply_hpso_parameters(o, hpso, hpso_pipe):
         raise Exception('Unknown HPSO %s!' % hpso)
 
     return o
+
+
+def apply_yaml_parameters(o, yaml_parameters):
+    for key in yaml_parameters:
+        if ( key == "baseline_bin_distribution" ) or ( key == "baseline_bins" ):
+            setattr(o, key, np.array(yaml_parameters[key]))
+        else:
+            setattr(o, key, yaml_parameters[key])
+    return o
+
+
+def apply_custom_array_parameters(o, array_config_file, array_config_bins, Bmax):
+    
+    row_dtypes = np.dtype([('name', 'U10'), ('lon', 'f8'), ('lat', 'f8')])
+    rows = np.loadtxt(array_config_file, usecols=(0, 1, 2), dtype=row_dtypes)
+    assert rows[0]['name'] == 'Centre', 'First entry in layout file must be the centre of the array'
+
+    centre_antenna = rows[0]
+    all_other_antennas = rows[1:]
+
+    histogram_bin_edges = np.linspace(0, Bmax, array_config_bins + 1, dtype=np.float64)
+    o.baseline_bins = np.array(histogram_bin_edges[1:])
+    o.baseline_bin_distribution = antenna_positions_to_baseline_histogram(centre_antenna, all_other_antennas, histogram_bin_edges)
+    
+    return o
+
+def antenna_positions_to_baseline_histogram(centre_antenna: np.void, all_other_antennas: np.ndarray, histogram_bin_edges: np.ndarray) -> np.ndarray:
+        """Converts antenna positions to a histogram of baseline lengths.
+        
+        Args:
+            centre_antenna (np.void): latitude and longitude of the centre antenna.
+            all_other_antennas (np.ndarray): array of the latitude and longitude of all the other antennas.
+            histogram_bin_edges (np.ndarray): the histogram bin edges of the baselines include 0 and the maximum.
+
+        Returns:
+            histogram (np.ndarray): array of baseline length histogram values.
+        """
+        radius_earth = 6371010
+        degrees_to_radians = np.pi / 180.0
+
+        array_x_centre = radius_earth * np.cos(centre_antenna['lat']*degrees_to_radians) * np.cos(centre_antenna['lon']*degrees_to_radians)
+        array_y_centre = radius_earth * np.cos(centre_antenna['lat']*degrees_to_radians) * np.sin(centre_antenna['lon']*degrees_to_radians)
+        array_z_centre = radius_earth * np.sin(centre_antenna['lat']*degrees_to_radians)
+
+        array_dx = []
+        array_dy = []
+        array_dz = []
+        array_r = []
+
+        n_positions = len(all_other_antennas)
+
+        for i in range(n_positions):
+            array_dx.append(radius_earth*np.cos(all_other_antennas['lat'][i]*degrees_to_radians)*np.cos(all_other_antennas['lon'][i]*degrees_to_radians)-array_x_centre)
+            array_dy.append(radius_earth*np.cos(all_other_antennas['lat'][i]*degrees_to_radians)*np.sin(all_other_antennas['lon'][i]*degrees_to_radians)-array_y_centre)
+            array_dz.append(radius_earth*np.sin(all_other_antennas['lat'][i]*degrees_to_radians)-array_z_centre)
+            array_r.append(np.sqrt(array_dx[i]**2 + array_dy[i]**2 + array_dz[i]**2))
+
+        baseline_lengths = []
+        for i in range(n_positions):
+            for j in range(i + 1, n_positions):
+                baseline_length = np.sqrt((array_dx[j]-array_dx[i])**2 + (array_dy[j]-array_dy[i])**2 + (array_dz[j]-array_dz[i])**2)
+                baseline_lengths.append(baseline_length)
+
+        histogram = np.histogram(baseline_lengths, bins=histogram_bin_edges, density=False)[0].astype(np.float64)
+
+        return histogram
+
+ALL_PARAMETER_KEYS = [
+"name",
+"telescope",
+"band",
+"pipeline",
+"array_config_file",
+"array_config_bins",
+"freq_max",
+"freq_min",
+"Bmax",
+"B_dump_ref",
+"baseline_bins",
+"baseline_bin_distribution",
+"Ds",
+"Na",
+"Nf_max",
+"Tint_min",
+"Tobs",
+"Tpoint",
+"Texp",
+"Nbeam",
+"Tint_out",
+"tRCAL_G",
+"tICAL_G",
+"tICAL_B",
+"tICAL_I",
+"NIpatches",
+"Nf_out",
+"Npp",
+"Nselfcal",
+"Nmajor",
+"Nmajortotal",
+"Nminor",
+"Qpix",
+"Qfov",
+"amp_f_max",
+"Ntiedbeam",
+"on_the_fly",
+"blcoal",
+"global_blcoal",
+"scale_predict_by_facet",
+"image_gridding",
+"c",
+"Omega_E",
+"R_Earth",
+"epsilon_w",
+"Mvis",
+"Mjones",
+"NAProducts",
+"Naa",
+"Nmm",
+"Nw",
+"Mpx",
+"Mpx_out",
+"Mcpx",
+"NAteam",
+"Qfcv",
+"Qgcf",
+"Qkernel",
+"Qw",
+"Tion",
+"Nf_min",
+"FastImg_channels",
+"Nf_min_gran",
+"Ntt",
+"NB_parameters",
+"r_facet_base",
+"max_subband_freq_ratio",
+"buffer_factor",
+"Qfov_ICAL",
+"Qmax_wproject",
+"Nsource_find_iterations",
+"Nsource",
+"Nminor",
+"Nsolve",
+"Nscales",
+"Npatch",
+"Tsolve",
+"Tsnap_min",
+"Tsnap"
+]

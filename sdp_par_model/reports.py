@@ -35,7 +35,7 @@ VERBOSE_DISPLAY = ['Overview', 'Details', 'Debug']
 RESULT_MAP = [
     # Table Row Title              Unit          Default? Sum?   Expression
     ('-- Parameters --',           '',           True,    False, lambda tp: ''                    ),
-    ('Configuration Name',         '',           True,    False, lambda tp: tp.name               ),
+    ('Observation Name',         '',           True,    False, lambda tp: tp.name               ),
     ('Telescope',                  '',           True,    False, lambda tp: tp.telescope          ),
     ('Band',                       '',           True,    False, lambda tp: str(tp.band) if tp.band is not None else ''),
     ('Frequency Min',              'GHz',        False,   False, lambda tp: tp.freq_min/c.giga    ),
@@ -311,125 +311,46 @@ class CompareTelescopes:
         )
 
 
-def antenna_positions_to_baseline_histogram(centre_antenna: np.void, all_other_antennas: np.ndarray, histogram_bin_edges: np.ndarray) -> np.ndarray:
-    """Converts antenna positions to a histogram of baseline lengths.
-    
-    Args:
-        centre_antenna (np.void): latitude and longitude of the centre antenna.
-        all_other_antennas (np.ndarray): array of the latitude and longitude of all the other antennas.
-        histogram_bin_edges (np.ndarray): the histogram bin edges of the baselines include 0 and the maximum.
-
-    Returns:
-        histogram (np.ndarray): array of baseline length histogram values.
-    """
-    radius_earth = 6371010
-    degrees_to_radians = np.pi / 180.0
-
-    array_x_centre = radius_earth * np.cos(centre_antenna['lat']*degrees_to_radians) * np.cos(centre_antenna['lon']*degrees_to_radians)
-    array_y_centre = radius_earth * np.cos(centre_antenna['lat']*degrees_to_radians) * np.sin(centre_antenna['lon']*degrees_to_radians)
-    array_z_centre = radius_earth * np.sin(centre_antenna['lat']*degrees_to_radians)
-
-    array_dx = []
-    array_dy = []
-    array_dz = []
-    array_r = []
-
-    n_positions = len(all_other_antennas)
-
-    for i in range(n_positions):
-        array_dx.append(radius_earth*np.cos(all_other_antennas['lat'][i]*degrees_to_radians)*np.cos(all_other_antennas['lon'][i]*degrees_to_radians)-array_x_centre)
-        array_dy.append(radius_earth*np.cos(all_other_antennas['lat'][i]*degrees_to_radians)*np.sin(all_other_antennas['lon'][i]*degrees_to_radians)-array_y_centre)
-        array_dz.append(radius_earth*np.sin(all_other_antennas['lat'][i]*degrees_to_radians)-array_z_centre)
-        array_r.append(np.sqrt(array_dx[i]**2 + array_dy[i]**2 + array_dz[i]**2))
-
-    baseline_lengths = []
-    for i in range(n_positions):
-        for j in range(i + 1, n_positions):
-            baseline_length = np.sqrt((array_dx[j]-array_dx[i])**2 + (array_dy[j]-array_dy[i])**2 + (array_dz[j]-array_dz[i])**2)
-            baseline_lengths.append(baseline_length)
-
-    histogram = np.histogram(baseline_lengths, bins=histogram_bin_edges, density=False)[0].astype(np.float64)
-
-    return histogram
-
-
-class CustomObservation:
-    """Class for computing results for a custom observation.
+class Observation:
+    """Class for computing results for an observation which can be customised, or can use hard-coded HPSOs.
 
     Args:
-        yaml_file (str/Path): yaml file path which contains the custom observation attributes.
-        custom_array (optional, bool): if True, a custom telescope array is used from the array_txt_file. 
-        array_txt_file (optional, str): txt file path which contains the lat and lng coordinates for each antenna in the array.
-        num_bins (optional, int): the number of histogram bins used if using a custom array.
-        verbose (optional, str): verbosity of output.
-
-    Attributes:
-        telescope (str): name of the telescope.
-        band (str): name of the band.
-        pipeline (str): pipeline name for the first telescope.
-        adjusts (optional, str): adjustments for the first telescope.
-        verbose (optional, str): verbosity of output.
+        use_yaml (bool): Tells PipelineConfig class whether the user has a custom yaml file, or is using a hard-coded HPSO.
+        telescope (str): name of the telescope. Ignored if use_yaml==True.
+        band (str): Name of the band. Ignored if use_yaml==True.
+        pipeline (str): Pipeline name for the telescope. Ignored if use_yaml==True.
+        hpso (str): HPSO name. Ignored if use_yaml==True.x
+        adjusts (str): Adjustments for telescope. These are applied after yaml/HPSO parameters have been applied (highest priority).
+        yaml_path (str): Yaml file path which contains the custom observation attributes. Ignored if use_yaml==False.
+        custom_array (bool): If True, a custom telescope array is used from the array_txt_file.  Ignored if use_yaml==False.
+        array_txt_file (str): txt file path which contains the lat and lng coordinates for each antenna in the array. Ignored if use_yaml==False.
+        num_bins (int): The number of histogram bins used if using a custom array. Ignored if use_yaml==False.
+        verbose (str): Verbosity of output.
     """
     def __init__(
             self,
-            yaml_file: Union[str, Path],
-            custom_array: bool=False,
-            array_txt_file: Optional[Union[str, Path]]=None,
-            num_bins: Optional[int]=None,
+            use_yaml: bool=False,
+            telescope=None,
+            band=None,
+            pipeline=None,
+            hpso=None,
+            adjusts: str='',
+            yaml_path: Optional[Union[str, Path]]=None,
             verbose: str='Overview',
             ):
         self.verbose = verbose
-        self._parse_yaml(yaml_file, custom_array, array_txt_file, num_bins)
-        self._validate_attributes()
-
-    def _parse_yaml(self, yaml_file, custom_array=False, array_config=None, num_bins=None):
-        with open(yaml_file, 'r') as file:
-            config = yaml.safe_load(file)
-            try:
-                self.telescope = config['telescope']
-                config.pop('telescope')
-            except AttributeError:
-                print('Telescope must be specified.')
-            try:
-                self.band = config['band']
-                config.pop('band')
-            except AttributeError:
-                print('Band must be specified.')
-            try:
-                self.pipeline = config['pipeline']
-                config.pop('pipeline')
-            except AttributeError:
-                print('Pipelines must be specified.')
-            self.adjusts = config
-
-        if custom_array:
-            try:
-                bmax = self.adjusts['Bmax']
-            except KeyError:
-                raise KeyError("'Bmax' missing from yaml file.")
-            if not array_config:
-                raise ValueError('array_config file must be specified with custom_array = True')
-            if not num_bins:
-                raise ValueError('num_bins must be specified when using a custom array')
-            row_dtypes = np.dtype([('name', 'U10'), ('lon', 'f8'), ('lat', 'f8')])
-            rows = np.loadtxt(array_config, usecols=(0, 1, 2), dtype=row_dtypes)
-            assert rows[0]['name'] == 'Centre', 'First entry in layout file must be the centre of the array'
+        self.use_yaml = use_yaml
+        self.pipeline_config = PipelineConfig(
+                                                use_yaml=use_yaml, 
+                                                yaml_path=yaml_path, 
+                                                telescope=telescope,
+                                                band=band,
+                                                pipeline=pipeline,
+                                                hpso=hpso,
+                                                adjusts=adjusts,
+                                                )
             
-            centre_antenna = rows[0]
-            all_other_antennas = rows[1:]
-
-            histogram_bin_edges = np.linspace(0, bmax, num_bins + 1, dtype=np.float64)
-            self.adjusts['baseline_bins'] = histogram_bin_edges[1:]
-            self.adjusts['baseline_bin_distribution'] = antenna_positions_to_baseline_histogram(centre_antenna, all_other_antennas, histogram_bin_edges)
-        else:
-            try:
-                self.adjusts['baseline_bins'] = np.array(self.adjusts['baseline_bins'])
-            except KeyError:
-                raise KeyError("'baseline_bins' missing from yaml file.")
-            try:
-                self.adjusts['baseline_bin_distribution'] = np.array(self.adjusts['baseline_bin_distribution'])
-            except KeyError:
-                raise KeyError("'baseline_bin_distribution' missing from yaml file.")
+        self._validate_attributes()
 
     def _check_attribute_in_set(self, attribute, attribute_name, valid_set):
         if attribute not in valid_set:
@@ -438,24 +359,31 @@ class CustomObservation:
             )
 
     def _validate_attributes(self):
+        cfg = self.pipeline_config
+        
+        # Set by HPSO, always required
         self._check_attribute_in_set(
-            self.telescope, "telescope", Telescopes.available_teles
+            cfg.telescope, "telescope", Telescopes.available_teles
         )
+        
+        # Required only for yaml file. Not set for HPSO
+        if self.use_yaml:
+            self._check_attribute_in_set(
+                cfg.band,
+                "band",
+                Bands.telescope_bands[cfg.telescope]
+            )
+        
+        # Pipeline always required
         self._check_attribute_in_set(
-            self.band,
-            "band",
-            Bands.telescope_bands[self.telescope]
-        )
-        self._check_attribute_in_set(
-            self.pipeline, "pipeline", Pipelines.available_pipelines
+            cfg.pipeline, "pipeline", Pipelines.available_pipelines
         )
 
     def run(self) -> None:
         """Computes the results then displays them in a table."""
         # Make pipeline configuration then check it.
         display(HTML('<font color="blue">Evaluating...</font>'))
-        pipeline_config = PipelineConfig(telescope=self.telescope, pipeline=self.pipeline, band=self.band, adjusts=self.adjusts)
-        if not check_pipeline_config(pipeline_config, pure_pipelines=True):
+        if not check_pipeline_config(self.pipeline_config, pure_pipelines=self.use_yaml):
             return
 
         # Determine which rows to calculate.
@@ -463,7 +391,7 @@ class CustomObservation:
 
         # Compute results.
         detailed = (self.verbose=='Debug')
-        result_values = _compute_results(pipeline_config, result_map, detailed, detailed)
+        result_values = _compute_results(self.pipeline_config, result_map, detailed, detailed)
         display(HTML('<font color="blue">Done computing. Results follow:</font>'))
 
         # Show table of results.
@@ -1112,7 +1040,7 @@ def write_csv_hpsos(filename, hpsos, adjusts="", verbose=False, parallel=0):
     _write_csv(filename, results, rows)
 
 
-def write_csv_custom(infiles, outfile, custom_arrays=None, array_configs=None, list_num_bins=None, verbose=False, parallel=0):
+def write_csv_custom(infiles, outfile, verbose=False, parallel=0):
     """
     Evaluates the configurations specified in the input yaml files and dumps the
     result as a CSV file.
@@ -1123,31 +1051,14 @@ def write_csv_custom(infiles, outfile, custom_arrays=None, array_configs=None, l
     :param array_configs: `list` of `str`. List of txt files containing custom telescope configurations. Required when a True value exists in `custom_arrays`.
     :param list_num_bins: `list` of `int`. Number of bins to use in the histogram calculated from a custom telescope configuration.
     """
-    
-    # Set default behaviour when custom_arrays and array_configs aren't specified
-    if array_configs is None:
-        array_configs = []
-    if list_num_bins is None:
-        list_num_bins = []
-    if custom_arrays is None:
-        custom_arrays = []
-        for i in range(len(infiles)):
-            custom_arrays.append(False)
-
-    # Check function inputs are correct
-    assert isinstance(infiles, list) and isinstance(custom_arrays, list) and isinstance(custom_arrays, list) and isinstance(list_num_bins, list),"'infiles', 'custom_arrays', 'array_configs', 'list_num_bins' must be lists."
-    assert len(infiles) == len(custom_arrays),"'infiles' and 'custom_arrays' must have the same length."
-    assert custom_arrays.count(True) == len(array_configs),"Must specify one array_config file per True value in 'custom_arrays'."
-    assert custom_arrays.count(True) == len(list_num_bins),"Must specify num_bins per True value in 'custom_arrays'."
 
     # Make configuration list
     configs = []
     for infile in infiles:
-        telescope, pipeline, band, adjusts = CustomObservation(infile).get_config_params()
         
-        cfg = PipelineConfig(telescope=telescope, band=band,
-                                pipeline=pipeline,
-                                adjusts=adjusts)
+        obs = Observation(use_yaml=True, yaml_path=infile)
+        
+        cfg = obs.pipeline_config
 
         # Check whether the configuration is valid
         (okay, msgs) = cfg.is_valid()
@@ -1162,7 +1073,7 @@ def write_csv_custom(infiles, outfile, custom_arrays=None, array_configs=None, l
     _write_csv(outfile, results, rows)
 
 
-def _compute_results(pipelineConfig, result_map, verbose=False, detailed=False, adjusts={}):
+def _compute_results(pipelineConfig: PipelineConfig, result_map, verbose=False, detailed=False, adjusts={}):
     """A private method for computing a set of results.
 
     :param pipelineConfig: Complete pipeline configuration
@@ -1171,7 +1082,7 @@ def _compute_results(pipelineConfig, result_map, verbose=False, detailed=False, 
     :param detailed: Produce detailed output results?
     :returns: result value array
     """
-
+    print(pipelineConfig.describe())
     # Loop through pipeliness to collect result values
     result_value_array = []
 
@@ -1398,7 +1309,7 @@ def lookup_csv(results, column_name, row_name,
 def lookup_csv_observation_names(results, telescope):
     # Get "telescope" and "configuration name" rows from csv
     telescopes = np.array([*results.get("telescope").values()])
-    all_observation_names = np.array([*results.get("configuration name").values()])
+    all_observation_names = np.array([*results.get("observation name").values()])
     
     # Get the csv column indices that have the correct telescope
     compatible_observation_indices = np.where(telescopes == telescope)[0]
@@ -1409,7 +1320,7 @@ def lookup_csv_observation_names(results, telescope):
 
 def lookup_observation_pipelines_csv(results, observation_name):
     # Get "configuration name" and "pipeline" rows from csv
-    all_observation_names = np.array([*results.get("configuration name").values()])
+    all_observation_names = np.array([*results.get("observation name").values()])
     all_pipelines = np.array([*results.get("pipeline").values()])
     
     # Get the column indices which correspond with observation_name
