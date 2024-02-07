@@ -1281,8 +1281,16 @@ def apply_hpso_parameters(o, hpso, hpso_pipe):
 
 
 def apply_yaml_parameters(o, yaml_parameters):
+    """
+    Applies the custom parameters specified in a yaml file to the ParameterContainer object o.
+
+    :param o: The supplied ParameterContainer object, to which the symbolic variables are appended (in-place)
+    :param yaml_parameters: A dictionary of parameters (keys) and their values to be applied to the ParameterContainer object
+    :returns: ParameterContainer
+    """
     for key in yaml_parameters:
         if ( key == "baseline_bin_distribution" ) or ( key == "baseline_bins" ):
+            # Must convert Python list to a NumPy array, otherwise the scheduling and simulation code fails
             setattr(o, key, np.array(yaml_parameters[key]))
         else:
             setattr(o, key, yaml_parameters[key])
@@ -1290,6 +1298,13 @@ def apply_yaml_parameters(o, yaml_parameters):
 
 
 def apply_custom_array_parameters(o, array_config_file, array_config_bins, Bmax):
+    """
+    Calculates the values of `baseline_bin_distribution` and `baseline_bins parameters`, from a custom set of baselines and applied them to the ParameterContainer object o.
+
+    :param o: The supplied ParameterContainer object, to which the symbolic variables are appended (in-place)
+    :param yaml_parameters: A dictionary of parameters (keys) and their values to be applied to the ParameterContainer object
+    :returns: ParameterContainer
+    """
     
     row_dtypes = np.dtype([('name', 'U10'), ('lon', 'f8'), ('lat', 'f8')])
     rows = np.loadtxt(array_config_file, usecols=(0, 1, 2), dtype=row_dtypes)

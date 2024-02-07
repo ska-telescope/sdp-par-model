@@ -55,8 +55,8 @@ class PipelineConfig:
         
         # Build PipelineConfig using custom parameters read from a yaml file
         if use_yaml:
-            if yaml_path == None:
-                raise Exception("yaml_path must be specified when use_yaml set to True")
+            if not yaml_path:
+                raise ValueError("yaml_path must be specified when use_yaml set to True")
             self._parse_yaml(yaml_path)
             
             p.apply_telescope_parameters(params, self.telescope)
@@ -70,16 +70,16 @@ class PipelineConfig:
             if (array_config_file or array_config_bins):
                 if not (array_config_file and array_config_bins):
                     raise KeyError("Both 'array_config_file' and 'array_config_bins' must be specified, or neither must be specified")
-                else:
-                    Bmax = self.yaml_parameters.get("Bmax", None)
-                    if not Bmax:
-                        raise KeyError("'Bmax' must be specified in yaml when custom array is used.")
-                    
-                    p.apply_custom_array_parameters(params, array_config_file, array_config_bins, Bmax)
+                
+                Bmax = self.yaml_parameters.get("Bmax", None)
+                if not Bmax:
+                    raise KeyError("'Bmax' must be specified in yaml when custom array is used.")
+                
+                p.apply_custom_array_parameters(params, array_config_file, array_config_bins, Bmax)
 
 
         # Hard-coded HPSO functionality
-        if not use_yaml:
+        else:
             
             # Alias for now
             if hpso_pipe is not None:
@@ -91,8 +91,8 @@ class PipelineConfig:
             if hpso is not None:
                 assert hpso in p.HPSOs.hpso_telescopes
                 assert pipeline is not None
-                if telescope is not None or band is not None:
-                    raise Exception("(telescope + band) *XOR* hpso need to be set (i.e. not both)")
+                if telescope or band:
+                    raise ValueError("If `hpso` is used then `telescope` and `band` mustn't be specified.")
 
                 self.hpso = hpso
                 self.hpso_pipe = pipeline
@@ -105,8 +105,8 @@ class PipelineConfig:
                     pipeline = params.pipeline
             else:
                 # This may be a bit of an outdated case; we mainly work in terms of HPSOs
-                if (telescope is None) or (band is None):
-                    raise Exception("(telescope + band) *XOR* hpso need to be set (i.e. not both)")
+                if not (telescope and band):
+                    raise ValueError("`hpso` hasn't been set, so both `telescope` and `band` are needed.")
                 self.band = band
                 self.telescope = telescope
                 self.pipeline = pipeline
@@ -114,7 +114,7 @@ class PipelineConfig:
                 p.apply_band_parameters(params, self.band)
 
             # Adjustments from keyword arguments
-            if type(adjusts) == str:
+            if isinstance(adjusts, str):
                 def mk_adjust(adjust):
                     # Setting a field?
                     fields = adjust.split('=')
