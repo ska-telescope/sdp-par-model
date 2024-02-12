@@ -3,22 +3,20 @@ This file contains methods for generating reports for SKA SDP
 parametric model data using especially matplotlib and Jupyter. Having
 these functions separate allows us to keep notebooks free of clutter.
 """
-from __future__ import print_function  # Makes Python-3 style print() function available in Python 2.x
-
 import re
-import warnings
-
 import csv
-from IPython.display import clear_output, display, HTML, FileLink
-from ipywidgets import FloatProgress, ToggleButtons, Text, Layout
+from IPython.display import display, HTML, FileLink
+from ipywidgets import FloatProgress, ToggleButtons, Text, Layout, interact_manual
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pylab
 from matplotlib import cm
-from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import sympy
 import subprocess
 import os
+from pathlib import Path
+import yaml
+from typing import Union, Optional
 
 try:
     import pymp
@@ -27,17 +25,17 @@ except:
     HAVE_PYMP=False
 
 from .parameters.definitions import HPSOs, Pipelines, Telescopes, Bands, Constants as c
-from .parameters.container import ParameterContainer
 from . import evaluate as imp
 from .config import PipelineConfig
 
 # Possible verbosity levels
-verbose_display     = ['Overview', 'Details', 'Debug']
+VERBOSE_DISPLAY = ['Overview', 'Details', 'Debug']
 
 # Possible calculated results to display in the notebook
 RESULT_MAP = [
     # Table Row Title              Unit          Default? Sum?   Expression
     ('-- Parameters --',           '',           True,    False, lambda tp: ''                    ),
+    ('Observation Name',         '',           True,    False, lambda tp: tp.name               ),
     ('Telescope',                  '',           True,    False, lambda tp: tp.telescope          ),
     ('Band',                       '',           True,    False, lambda tp: str(tp.band) if tp.band is not None else ''),
     ('Frequency Min',              'GHz',        False,   False, lambda tp: tp.freq_min/c.giga    ),
@@ -156,29 +154,271 @@ RESULT_MAP = [
 ]
 
 
-def toggles(opts, *args, **kwargs):
-    """ Helper for creating toggle buttons from given options """
+def get_toggles(opts, *args, **kwargs):
+    """Creates toggle buttons from given options."""
     return ToggleButtons(options=opts, *args, **kwargs)
-def adjusts():
-    """ Create widget for adjustments (with some suggestions) """
-    return Text(placeholder='e.g. blcoal=False Bmax=40*1000 Nsource=100', layout=Layout(width='95%'))
+
+
+def get_adjusts(placeholder='e.g. blcoal=False Bmax=40*1000 Nsource=100'):
+    """Creates text widget for adjustments."""
+    return Text(placeholder=placeholder, layout=Layout(width='95%'))
+
+
+class CompareTelescopes:
+    """Class for comparing two telescopes, including bands and pipelines.
+
+    Args:
+        telescope_1 (str): name of the first telescope.
+        band_1 (str): band name for the first telescope.
+        pipeline_1 (str): pipeline name for the first telescope.
+        telescope_2 (str): name of the second telescope.
+        band_2 (str): band name for the second telescope.
+        pipeline_2 (str): pipeline name for the second telescope.
+        adjusts_1 (optional, str): adjustments for the first telescope.
+        adjusts_2 (optional, str): adjustments for the second telescope.
+        verbose (optional, str): verbosity of output.
+        save_filename (optional, str): file path for saving plot as a PDF.
+
+    Attributes:
+        telescope_1 (str): name of the first telescope.
+        band_1 (str): band name for the first telescope.
+        pipeline_1 (str): pipeline name for the first telescope.
+        telescope_2 (str): name of the second telescope.
+        band_2 (str): band name for the second telescope.
+        pipeline_2 (str): pipeline name for the second telescope.
+        adjusts_1 (optional, str): adjustments for the first telescope.
+        adjusts_2 (optional, str): adjustments for the second telescope.
+        verbose (optional, str): verbosity of output.
+        save_filename (optional, str/Path): file path for saving plot as a PDF.
+    """
+    def __init__(
+            self,
+            telescope_1: str='SKA1_Low',
+            band_1: str='Low',
+            pipeline_1: str='DPrepA',
+            telescope_2: str='SKA1_Low',
+            band_2: str='Low',
+            pipeline_2: str='DPrepA',
+            adjusts_1: str='',
+            adjusts_2: str='',
+            verbose: str='Overview',
+            save_filename: Optional[Union[str, Path]]=None,
+            ):
+        self.telescope_1 = telescope_1
+        self.band_1 = band_1
+        self.pipeline_1 = pipeline_1
+        self.telescope_2 = telescope_2
+        self.band_2 = band_2
+        self.pipeline_2 = pipeline_2
+        self.adjusts_1 = adjusts_1
+        self.adjusts_2 = adjusts_2
+        self.verbose = verbose
+        self.save_filename = save_filename
+        self._validate_attributes()
+
+    def _check_attribute_in_set(self, attribute, attribute_name, valid_set):
+        if attribute not in valid_set:
+            raise ValueError(
+                f"{attribute_name} attribute '{attribute}' should be in {valid_set}."
+            )
+
+    def _valid_save_filename(self):
+        if self.save_filename is None:
+            return
+        try:
+            path = Path(self.save_filename)
+            if not path.parent.exists():
+                raise ValueError(f"save_filename attribute parent path '{path.parent}' does not exist.")
+            if path.suffix.lower() != '.pdf':
+                raise ValueError(f"save_filename attribute '{self.save_filename}' does not have a PDF extension.")
+        except (ValueError, TypeError):
+            raise ValueError(f"save_filename attribute '{self.save_filename}' is not a valid path.")
+
+    def _validate_attributes(self):
+        self._check_attribute_in_set(
+            self.telescope_1, "telescope_1", Telescopes.available_teles
+        )
+        self._check_attribute_in_set(
+            self.band_1,
+            "band_1",
+            Bands.telescope_bands[self.telescope_1]
+        )
+        self._check_attribute_in_set(
+            self.pipeline_1, "pipeline_1", Pipelines.available_pipelines
+        )
+        self._check_attribute_in_set(
+            self.telescope_2, "telescope_2", Telescopes.available_teles
+        )
+        self._check_attribute_in_set(
+            self.band_2,
+            "band_2",
+            Bands.telescope_bands[self.telescope_2]
+        )
+        self._check_attribute_in_set(
+            self.pipeline_2, "pipeline_2", Pipelines.available_pipelines
+        )
+        self._valid_save_filename()
+
+    def run(self, interactive: bool=True) -> None:
+        """Compares the telescopes.
+        
+        Args:
+            interactive (bool): if True, interactive widgets are shown to select the values.
+        """
+        if interactive:
+            self._interactive_run()
+        else:
+            self._non_interactive_run()
+
+    def _interactive_run(self):
+        self.telescope_1, self.band_1 = make_band_toggles()
+        self.pipeline_1 = get_toggles(sorted(Pipelines.available_pipelines))
+        self.adjusts_1 = get_adjusts()
+        self.telescope_2, self.band_2 = make_band_toggles()
+        self.pipeline_2 = get_toggles(sorted(Pipelines.available_pipelines))
+        self.adjusts_2 = get_adjusts()
+        self.verbose = get_toggles(VERBOSE_DISPLAY)
+        self.save_filename = get_adjusts("PDF path to save plot")
+
+        interact_manual(
+            compare_telescopes_default,
+            telescope_1=self.telescope_1,
+            band_1=self.band_1,
+            pipeline_1=self.pipeline_1,
+            adjusts_1=self.adjusts_1,
+            telescope_2=self.telescope_2,
+            band_2=self.band_2,
+            pipeline_2=self.pipeline_2,
+            adjusts_2=self.adjusts_2,
+            verbosity=self.verbose,
+            save=self.save_filename,
+        )
+
+    def _non_interactive_run(self):
+        self._validate_attributes()
+
+        compare_telescopes_default(
+            telescope_1=self.telescope_1,
+            band_1=self.band_1,
+            pipeline_1=self.pipeline_1,
+            adjusts_1=self.adjusts_1,
+            telescope_2=self.telescope_2,
+            band_2=self.band_2,
+            pipeline_2=self.pipeline_2,
+            adjusts_2=self.adjusts_2,
+            verbosity=self.verbose,
+            save=self.save_filename,
+        )
+
+
+class Observation:
+    """Class for computing results for an observation which can be customised, or can use hard-coded HPSOs.
+
+    Args:
+        use_yaml (bool): Tells PipelineConfig class whether the user has a custom yaml file, or is using a hard-coded HPSO.
+        telescope (str): name of the telescope. Ignored if use_yaml==True.
+        band (str): Name of the band. Ignored if use_yaml==True.
+        pipeline (str): Pipeline name for the telescope. Ignored if use_yaml==True.
+        hpso (str): HPSO name. Ignored if use_yaml==True.x
+        adjusts (str): Adjustments for telescope. These are applied after yaml/HPSO parameters have been applied (highest priority).
+        yaml_path (str): Yaml file path which contains the custom observation attributes. Ignored if use_yaml==False.
+        custom_array (bool): If True, a custom telescope array is used from the array_txt_file.  Ignored if use_yaml==False.
+        array_txt_file (str): txt file path which contains the lat and lng coordinates for each antenna in the array. Ignored if use_yaml==False.
+        num_bins (int): The number of histogram bins used if using a custom array. Ignored if use_yaml==False.
+        verbose (str): Verbosity of output.
+    """
+    def __init__(
+            self,
+            use_yaml: bool=False,
+            telescope=None,
+            band=None,
+            pipeline=None,
+            hpso=None,
+            adjusts: str='',
+            yaml_path: Optional[Union[str, Path]]=None,
+            verbose: str='Overview',
+            ):
+        self.verbose = verbose
+        self.use_yaml = use_yaml
+        self.pipeline_config = PipelineConfig(
+                                                use_yaml=use_yaml, 
+                                                yaml_path=yaml_path, 
+                                                telescope=telescope,
+                                                band=band,
+                                                pipeline=pipeline,
+                                                hpso=hpso,
+                                                adjusts=adjusts,
+                                                )
+            
+        self._validate_attributes()
+
+    def _check_attribute_in_set(self, attribute, attribute_name, valid_set):
+        if attribute not in valid_set:
+            raise ValueError(
+                f"{attribute_name} attribute '{attribute}' should be in {valid_set}."
+            )
+
+    def _validate_attributes(self):
+        cfg = self.pipeline_config
+        
+        # Set by HPSO, always required
+        self._check_attribute_in_set(
+            cfg.telescope, "telescope", Telescopes.available_teles
+        )
+        
+        # Required only for yaml file. Not set for HPSO
+        if self.use_yaml:
+            self._check_attribute_in_set(
+                cfg.band,
+                "band",
+                Bands.telescope_bands[cfg.telescope]
+            )
+        
+        # Pipeline always required
+        self._check_attribute_in_set(
+            cfg.pipeline, "pipeline", Pipelines.available_pipelines
+        )
+
+    def run(self) -> None:
+        """Computes the results then displays them in a table."""
+        # Make pipeline configuration then check it.
+        display(HTML('<font color="blue">Evaluating...</font>'))
+        if not check_pipeline_config(self.pipeline_config, pure_pipelines=self.use_yaml):
+            return
+
+        # Determine which rows to calculate.
+        result_map, result_titles, result_units = mk_result_map_rows(self.verbose)
+
+        # Compute results.
+        detailed = (self.verbose=='Debug')
+        result_values = _compute_results(self.pipeline_config, result_map, detailed, detailed)
+        display(HTML('<font color="blue">Done computing. Results follow:</font>'))
+
+        # Show table of results.
+        show_table('Computed Values', result_titles, result_values, result_units)
+
+    def get_config_params(self):
+        return (self.telescope, self.pipeline, self.band, self.adjusts)
 
 def make_band_toggles():
     """Create connected telescope/band toggle widgets that only allow
     selection of valid combinations"""
 
-    telescope_toggles = toggles(sorted(Telescopes.available_teles), description="telescope1")
-    band_toggles = toggles(sorted(Bands.available_bands))
     def _update_toggles(*_args):
         band_toggles.options = tuple(sorted(Bands.telescope_bands[telescope_toggles.value]))
-    _update_toggles(); telescope_toggles.observe(_update_toggles, 'value')
+
+    telescope_toggles = get_toggles(sorted(Telescopes.available_teles)) #, description="telescope1")
+    band_toggles = get_toggles(sorted(Bands.available_bands))
+    _update_toggles()
+    telescope_toggles.observe(_update_toggles, 'value')
     return telescope_toggles, band_toggles
+
 
 def make_hpso_pipeline_toggles():
     """Create connected HPSO/pipeline toggle widgets that only allow selection
     of valid combinations"""
-    hpso_toggles = toggles(sorted(HPSOs.available_hpsos))
-    pipeline_toggles = toggles(sorted(Pipelines.available_pipelines))
+    hpso_toggles = get_toggles(sorted(HPSOs.available_hpsos))
+    pipeline_toggles = get_toggles(sorted(Pipelines.available_pipelines))
     def update_pipeline_toggles(*_args):
         pipeline_toggles.options = tuple(sorted(HPSOs.hpso_pipelines[hpso_toggles.value]))
     update_pipeline_toggles(); hpso_toggles.observe(update_pipeline_toggles, 'value')
@@ -576,7 +816,7 @@ def plot_stacked_bars(title, labels, value_labels, dictionary_of_value_arrays,
         if colours is not None:
             plt.bar(indices, values, width, color=colours[index], bottom=bottoms[key])
         else:
-            plt.bar(indices, values, width, bottom=bottom[key])
+            plt.bar(indices, values, width, bottom=bottoms[key])
         for x, v, b in zip(indices, values, bottoms[key]):
             if v >= np.amax(np.array(valueSum)) / 40:
                 plt.text(x+width/2, b+v/2, "%.1f%%" % (100 * v / valueSum[x]),
@@ -587,7 +827,7 @@ def plot_stacked_bars(title, labels, value_labels, dictionary_of_value_arrays,
     plt.legend(value_labels, bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
     #plt.legend(dictionary_of_value_arrays.keys(), loc=1) # loc=2 -> legend upper-left
 
-    if not save is None:
+    if save:
         plt.savefig(save, format='pdf', dpi=1200, bbox_inches = 'tight')
     pylab.show()
 
@@ -608,7 +848,7 @@ def check_pipeline_config(cfg, pure_pipelines):
 
 def compare_telescopes_default(telescope_1, band_1, pipeline_1, adjusts_1,
                                telescope_2, band_2, pipeline_2, adjusts_2,
-                               verbosity='Overview'):
+                               verbosity='Overview', save=None):
     """
     Evaluates two telescopes, both operating in a given band and
     pipeline, using their default parameters.  A bit of an ugly bit of
@@ -665,7 +905,7 @@ def compare_telescopes_default(telescope_1, band_1, pipeline_1, adjusts_1,
     }
 
     plot_stacked_bars('Computational Requirements (PetaFLOPS)', telescope_labels, labels, values,
-                                    colours)
+                                    colours, save=save)
 
 def evaluate_hpso_optimized(hpso, hpso_pipe, adjusts='',
                             verbosity='Overview'):
@@ -800,7 +1040,40 @@ def write_csv_hpsos(filename, hpsos, adjusts="", verbose=False, parallel=0):
     _write_csv(filename, results, rows)
 
 
-def _compute_results(pipelineConfig, result_map, verbose=False, detailed=False, adjusts={}):
+def write_csv_custom(infiles, outfile, verbose=False, parallel=0):
+    """
+    Evaluates the configurations specified in the input yaml files and dumps the
+    result as a CSV file.
+    
+    :param infiles: `list` of `str`. List of yaml files which contain the model parameters for a pipeline step in an observation.
+    :param outfile: `str`. File name for the output csv.
+    :param custom_arrays: `list` of `Bool`. For each infile; True means a custom telescope array is used, False means histogram bins are read from the yaml. None assumes all False.
+    :param array_configs: `list` of `str`. List of txt files containing custom telescope configurations. Required when a True value exists in `custom_arrays`.
+    :param list_num_bins: `list` of `int`. Number of bins to use in the histogram calculated from a custom telescope configuration.
+    """
+
+    # Make configuration list
+    configs = []
+    for infile in infiles:
+        
+        obs = Observation(use_yaml=True, yaml_path=infile)
+        
+        cfg = obs.pipeline_config
+
+        # Check whether the configuration is valid
+        (okay, msgs) = cfg.is_valid()
+        if okay:
+            configs.append(cfg)
+    
+    # Calculate
+    rows = RESULT_MAP # Everything - hardcoded for now
+    results = _batch_compute_results(configs, rows, parallel, verbose, True)
+
+    # Write CSV
+    _write_csv(outfile, results, rows)
+
+
+def _compute_results(pipelineConfig: PipelineConfig, result_map, verbose=False, detailed=False, adjusts={}):
     """A private method for computing a set of results.
 
     :param pipelineConfig: Complete pipeline configuration
@@ -809,7 +1082,7 @@ def _compute_results(pipelineConfig, result_map, verbose=False, detailed=False, 
     :param detailed: Produce detailed output results?
     :returns: result value array
     """
-
+    print(pipelineConfig.describe())
     # Loop through pipeliness to collect result values
     result_value_array = []
 
@@ -1033,6 +1306,31 @@ def lookup_csv(results, column_name, row_name,
 
     return None
 
+def lookup_csv_observation_names(results, telescope):
+    # Get "telescope" and "configuration name" rows from csv
+    telescopes = np.array([*results.get("telescope").values()])
+    all_observation_names = np.array([*results.get("observation name").values()])
+    
+    # Get the csv column indices that have the correct telescope
+    compatible_observation_indices = np.where(telescopes == telescope)[0]
+    # Get the unique "configuration name" values which use the correct telescope
+    unique_observation_names = np.unique(all_observation_names[compatible_observation_indices])
+    
+    return unique_observation_names
+
+def lookup_observation_pipelines_csv(results, observation_name):
+    # Get "configuration name" and "pipeline" rows from csv
+    all_observation_names = np.array([*results.get("observation name").values()])
+    all_pipelines = np.array([*results.get("pipeline").values()])
+    
+    # Get the column indices which correspond with observation_name
+    observation_column_indices = np.where(all_observation_names == observation_name)[0]
+    
+    # Get all pipelines in the observation
+    pipelines_in_observation = all_pipelines[observation_column_indices]
+            
+    return pipelines_in_observation, observation_column_indices
+
 def strip_csv(csv, ignore_units=True, ignore_modifiers=True):
 
     return {
@@ -1182,7 +1480,7 @@ def compare_csv(result_file, ref_file,
     if return_diffs:
         return all_diff_sums
 
-def find_csvs(csv_path = "../data/csv"):
+def find_csvs(csv_path = os.path.join(os.pardir, "data", "csv")):
     """
     Returns a map of all CSV files currently checked into the Git repository.
 

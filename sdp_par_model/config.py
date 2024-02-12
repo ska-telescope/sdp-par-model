@@ -7,11 +7,16 @@ import numpy as np
 import sympy
 import pylru  # Install using pip (conda doesn't resolve this in my test)
 import copy
+import yaml
+import os
+from pathlib import Path
+from typing import Union, Optional
 
 from .parameters.container import ParameterContainer, BLDep
 from .parameters import definitions as p
 from .parameters.definitions import (Telescopes, Pipelines, Bands)
 from .parameters import equations as f
+from .parameters.definitions import ALL_PARAMETER_KEYS
 # from .parameters.definitions import Constants as c
 from . import evaluate
 
@@ -23,8 +28,16 @@ class PipelineConfig:
     to parameterise a pipeline.
     """
 
-    def __init__(self, telescope=None, pipeline=None, band=None, hpso=None, hpso_pipe=None,
-                 adjusts={}, **kwargs):
+    def __init__(
+            self, 
+            use_yaml: bool=False,
+            yaml_path: Optional[Union[str, Path]]=None,
+            telescope: Optional[str]=None,
+            pipeline: Optional[str]=None,
+            band: Optional[str]=None,
+            hpso: Optional[str]=None,
+            hpso_pipe: Optional[str]=None,
+            adjusts={}, **kwargs):
         """
         :param telescope: Telescope to use (can be omitted if HPSO specified)
         :param pipeline: Pipeline mode (can be omitted if HPSO specified)
@@ -36,50 +49,82 @@ class PipelineConfig:
           adjustments automatically. Can be a string of the the form
           "name=val name2=val flag".
         """
+        
         params = ParameterContainer()
-
-        # Alias for now
-        if hpso_pipe is not None:
-            pipeline = hpso_pipe
-
-        # Load HPSO parameters
-        if pipeline is None:
-            raise ValueError("pipeline must be set!")
-        if hpso is not None:
-            assert hpso in p.HPSOs.hpso_telescopes
-            assert pipeline is not None
-            if telescope is not None or band is not None:
-                raise Exception("(telescope + band) *XOR* hpso need to be set (i.e. not both)")
-
-            self.hpso = hpso
-            self.hpso_pipe = pipeline
-            self.pipeline = pipeline
-            self.telescope = p.HPSOs.hpso_telescopes[hpso]
-
-            p.apply_telescope_parameters(params, self.telescope)
-            p.apply_hpso_parameters(params, hpso, pipeline)
-            if hasattr(params, 'pipeline'):
-                pipeline = params.pipeline
-        else:
-            # This may be a bit of an outdated case; we mainly work in terms of HPSOs
-            if (telescope is None) or (band is None):
-                raise Exception("(telescope + band) *XOR* hpso need to be set (i.e. not both)")
-            self.band = band
-            self.telescope = telescope
-            self.pipeline = pipeline
+        
+        
+        # Build PipelineConfig using custom parameters read from a yaml file
+        if use_yaml:
+            if not yaml_path:
+                raise ValueError("yaml_path must be specified when use_yaml set to True")
+            self._parse_yaml(yaml_path)
+            
             p.apply_telescope_parameters(params, self.telescope)
             p.apply_band_parameters(params, self.band)
+            
+            p.apply_yaml_parameters(params, self.yaml_parameters)
+            
+            array_config_file = self.yaml_parameters.get("array_config_file", None)
+            array_config_bins = self.yaml_parameters.get("array_config_bins", None)
+            
+            if (array_config_file or array_config_bins):
+                if not (array_config_file and array_config_bins):
+                    raise KeyError("Both 'array_config_file' and 'array_config_bins' must be specified, or neither must be specified")
+                
+                Bmax = self.yaml_parameters.get("Bmax", None)
+                if not Bmax:
+                    raise KeyError("'Bmax' must be specified in yaml when custom array is used.")
+                
+                p.apply_custom_array_parameters(params, array_config_file, array_config_bins, Bmax)
 
-        # Adjustments from keyword arguments
-        if type(adjusts) == str:
-            def mk_adjust(adjust):
-                # Setting a field?
-                fields = adjust.split('=')
-                if len(fields) == 2:
-                    return (fields[0], eval(fields[1]))
-                # Otherwise assume that it's a flag
-                return (adjust, True)
-            adjusts = dict(map(mk_adjust, adjusts.split(' ')))
+
+        # Hard-coded HPSO functionality
+        else:
+            
+            # Alias for now
+            if hpso_pipe is not None:
+                pipeline = hpso_pipe
+
+            # Load HPSO parameters
+            if pipeline is None:
+                raise ValueError("pipeline must be set!")
+            if hpso is not None:
+                assert hpso in p.HPSOs.hpso_telescopes
+                assert pipeline is not None
+                if telescope or band:
+                    raise ValueError("If `hpso` is used then `telescope` and `band` mustn't be specified.")
+
+                self.hpso = hpso
+                self.hpso_pipe = pipeline
+                self.pipeline = pipeline
+                self.telescope = p.HPSOs.hpso_telescopes[hpso]
+
+                p.apply_telescope_parameters(params, self.telescope)
+                p.apply_hpso_parameters(params, hpso, pipeline)
+                if hasattr(params, 'pipeline'):
+                    pipeline = params.pipeline
+            else:
+                # This may be a bit of an outdated case; we mainly work in terms of HPSOs
+                if not (telescope and band):
+                    raise ValueError("`hpso` hasn't been set, so both `telescope` and `band` are needed.")
+                self.band = band
+                self.telescope = telescope
+                self.pipeline = pipeline
+                p.apply_telescope_parameters(params, self.telescope)
+                p.apply_band_parameters(params, self.band)
+
+            # Adjustments from keyword arguments
+            if isinstance(adjusts, str):
+                def mk_adjust(adjust):
+                    # Setting a field?
+                    fields = adjust.split('=')
+                    if len(fields) == 2:
+                        return (fields[0], eval(fields[1]))
+                    # Otherwise assume that it's a flag
+                    return (adjust, True)
+                adjusts = dict(map(mk_adjust, adjusts.split(' ')))
+        
+        
         self.adjusts = dict(adjusts)
         self.adjusts.update(**kwargs)
         assert 'max_baseline' not in self.adjusts, 'Please use Bmax for consistency!'
@@ -92,17 +137,62 @@ class PipelineConfig:
         if 'Nf_max' not in self.adjusts:
             self.adjusts['Nf_max'] = params.Nf_max
 
+            
+    def _parse_yaml(self, yaml_path, custom_array=False, array_config=None, num_bins=None):
+               
+        # Read yaml file
+        with open(yaml_path, 'r') as file:
+            config_dict = yaml.safe_load(file)
+            
+        
+        # Add required PipelineConfig attributes
+        try:
+            setattr(self, "telescope", config_dict["telescope"])
+        except KeyError:
+            raise KeyError("'telescope' must be specified in the yaml")
+        try:
+            setattr(self, "band", config_dict["band"])
+        except KeyError:
+            raise KeyError("'band' must be specified in the yaml")
+        try:
+            setattr(self, "pipeline", config_dict["pipeline"])
+        except KeyError:
+            raise KeyError("'pipeline' must be specified in the yaml")
+        
+        
+        
+        # Initialise yaml_parameters attribute
+        self.yaml_parameters = {}
+        
+        # Populate PipelineConfig attributes from the yaml file
+        for key in config_dict:
+            if key not in ALL_PARAMETER_KEYS:
+                warnings.warn(f"The parameter '{key}' specified in the yaml is not recognised")
+            
+            self.yaml_parameters[key] = config_dict[key]
+            
+            assert self.yaml_parameters.get("name", None), "Observation name must be specified in yaml."
+            self.name = self.yaml_parameters["name"]
+            
+        # Add yaml file name attribute so PipelineConfig.describe() method displays the yaml
+        self.yaml_name = os.path.split(yaml_path)[1]
+            
+
     def describe(self):
         """ Returns a name that identifies this configuration. """
 
-        # Identify by either (HPSO + pipeline), or (pipeline + band)
+        # Identify by either (HPSO + pipeline), (pipeline + yaml_name), or (pipeline + band)
         if hasattr(self, "hpso"):
-            name = self.hpso + ' (' + self.pipeline + ')'
+            name = self.hpso + " (" + self.pipeline + ")"
+        elif hasattr(self, "yaml_name"):
+            name = f"{self.pipeline} ({self.yaml_name})"
         else:
-            name = self.pipeline + ' (' + self.band + ')'
+            name = self.pipeline + " (" + self.band + ")"
 
         # Add modifiers
         for n, val in self.adjusts.items():
+            if isinstance(val, np.ndarray):
+                continue
             if n == 'Nf_max' and self.adjusts[n] == self.default_frequencies:
                 continue
             if n == 'Bmax' and self.adjusts[n] == self.max_allowed_baseline:
@@ -220,6 +310,23 @@ class PipelineConfig:
         elif hasattr(cfg, "band"):
             p.apply_band_parameters(telescope_params, cfg.band)
             p.apply_pipeline_parameters(telescope_params, cfg.pipeline)
+            
+        if hasattr(cfg, "yaml_parameters"):
+            
+            p.apply_yaml_parameters(telescope_params, cfg.yaml_parameters)
+            
+            array_config_file = cfg.yaml_parameters.get("array_config_file", None)
+            array_config_bins = cfg.yaml_parameters.get("array_config_bins", None)
+            
+            if (array_config_file or array_config_bins):
+                if not (array_config_file and array_config_bins):
+                    raise KeyError("Both 'array_config_file' and 'array_config_bins' must be specified, or neither must be specified")
+                else:
+                    Bmax = cfg.yaml_parameters.get("Bmax", None)
+                    if not Bmax:
+                        raise KeyError("'Bmax' must be specified in yaml when custom array is used.")
+                    
+                    p.apply_custom_array_parameters(telescope_params, array_config_file, array_config_bins, Bmax)
 
         # Apply parameter adjustments. Needs to be done before bin
         # calculation in case Bmax gets changed.  Note that an

@@ -1,0 +1,36 @@
+name: 'max_mid_band1'
+telescope: 'SKA1_Mid'
+band: 'Mid1'
+Bmax: 150000  # Actually constructed max baseline in *m*
+Ds: 13.5  # dish diameter in metres, assume 13.5 as this matches the MeerKAT dishes
+Na: 100 # number of dishes (sum of MeerKAT and new dishes)
+Nbeam: 1  # number of beams
+Nf_max: 65536  # maximum number of channels
+B_dump_ref: 150000  # m
+Tint_min: 0.14  # Minimum correlator integration time (dump time) in *sec* - in reference design
+freq_min: 750000000
+freq_max: 950000000
+Tobs: 28800
+Tpoint: 3600000
+Texp: 18000000
+# Baseline length distribution calculated from layout in
+# SKA-TEL-SKO-0000422, Rev 03 (corresponding to ECP-170049),
+# see Absolute_Baseline_length_distribution.ipynb
+baseline_bins: [5000.0, 7500.0, 10000.0, 15000.0, 25000.0, 35000.0, 55000.0, 75000.0, 90000.0, 110000.0, 130000.0, 150000.0]
+baseline_bin_distribution: [61.3646961, 5.16553546, 2.87031760, 4.98937879,
+            6.32609709, 4.63706544, 5.73545412, 5.50230558,
+            1.80301539, 1.45070204, 0.108802653, 0.0466297083]
+#o.amp_f_max: 1.08  # Added by Rosie Bolton, 1.02 is consistent with the dump time of 0.08s at 200km BL.
+# o.NAProducts: o.nr_baselines # We must model the ionosphere for each station
+# NAProducts: 'all' # We must model the ionosphere for each station
+tRCAL_G: 10.0
+tICAL_G: 1.0 # Solution interval for Antenna gains
+tICAL_B: 3600.0  # Solution interval for Bandpass
+tICAL_I: 10.0 # Solution interval for Ionosphere
+NIpatches: 1 # Number of ionospheric patches to solve
+
+# Pipeline specific options
+pipeline: 'DPrepB' # One of ['Ingest', 'RCAL', 'FastImg', 'ICAL', 'DPrepA', 'DPrepA_Image', 'DPrepB', 'DPrepC', 'DPrepD', 'PSS', 'PST', 'SinglePulse']
+Nf_out: 160
+Npp: 2
+Tint_out: 1.4 # DPrepD only

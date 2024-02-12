@@ -27,6 +27,24 @@ def _determine_durations(cost_amounts):
             effs.append(None)
     return effs
 
+def _determine_durations_custom(cost_amounts):
+    csv, observations, pipelines_in_observations, pipeline_identifiers, observation_sequence, caps, kwargs = cost_amounts
+    # Schedule, collect efficiencies
+    effs = []
+    sequence = []
+    for observation in observation_sequence:
+        for i, obs in enumerate(observations):
+            if observation == obs:
+                sequence.append(i)
+    for cap in caps:
+        nodes = graph.observation_sequence_to_nodes(csv, observations, pipelines_in_observations, pipeline_identifiers, sequence, cap, **kwargs)
+        try:
+            usage, task_time, task_edge_end_time = scheduler.schedule(nodes, cap, verbose=False)
+            effs.append(usage[graph.Resources.Observatory].end())
+        except ValueError:
+            effs.append(None)
+    return effs
+
 def determine_durations_batch(csv, hpso_list, costs, capacities, update_rates,
                               percent, percent_step, count, **kwargs):
     """Perform Monte-Carlo simulation of the effects of capacity changes.
@@ -70,6 +88,62 @@ def determine_durations_batch(csv, hpso_list, costs, capacities, update_rates,
     else:
         all_results = map(_determine_durations, all_work)
 
+    # Organise data
+    efficiencies = {}
+    for graph_ix, cost in enumerate(costs):
+        amounts = capacities[cost] + (capacities[cost] * cap_modifications).astype(int)
+        effs = numpy.transpose(list(all_results[graph_ix*count:(graph_ix+1)*count]))
+        # Add to result, filtering out impossible amounts (where we got only "None" values)
+        sel = numpy.all(effs != None, axis=1)
+        efficiencies[cost] = list(zip(amounts[sel], effs[sel]))
+    return efficiencies
+
+def determine_durations_batch_custom(csv, observations, pipelines_in_observations, pipeline_identifiers, observation_sequence, costs, capacities, update_rates,
+                              percent, percent_step, count, **kwargs):
+    """Perform Monte-Carlo simulation of the effects of capacity changes.
+
+    :param csv: Cached telescope parameters to use for creating graph
+    :param observations: List of custom observations in the csv.
+    :param pipelines_in_observations: Two-dimensional list of `str`. Container for the pipeline names for each custom observation in csv.
+    :param pipeline_identifiers: Two-dimensional list of `int`. Same shape as `pipelines_in_observations`. Container for csv column indices for each pipeline in each custom observation.
+    :param observation_sequence: List of custom observations to permute for randomisation
+    :param costs: Costs to vary
+    :param capacities: Default capacities
+    :param update_rates: Function to update dependent rates after adjustment
+    :param percent: Variation range on costs
+    :param percent_step: Variation step
+    :param count: Numer of simulation runs
+    :param **kwargs: Other parameters to pass to `hpso_sequence_to_nodes`
+    :returns: Map of costs to a list of (capacity, durations) pairs
+    """
+
+    # Make appropriate number of custom observation sequences
+    sequences = []
+    for _ in range(count):
+        observation_sequence = list(observations)
+        random.shuffle(observation_sequence)
+        sequences.append(observation_sequence)
+    # Multiply by all the capacity changes we would like to test
+    all_work = []
+    cap_modifications = numpy.arange(-percent, percent+percent_step, percent_step) / 100
+    for graph_ix, cost in enumerate(costs):
+        # Adjust capacity, update rates if needed
+        caps = []
+        for mod in cap_modifications:
+            cap = dict(capacities)
+            cap[cost] = cap[cost] + int(cap[cost] * mod)
+            update_rates(cap)
+            caps.append(cap)
+        # Create work item
+        all_work.extend([(csv, observations, pipelines_in_observations, pipeline_identifiers, seq, caps, kwargs) for seq in sequences])
+
+    # Calculate results. Will have to fall back to normal map on Windows
+    if HAVE_MP:
+        with multiprocessing.Pool(multiprocessing.cpu_count()) as mp_pool:
+            all_results = mp_pool.map(_determine_durations_custom, all_work)
+    else:
+        all_results = map(_determine_durations_custom, all_work)
+    
     # Organise data
     efficiencies = {}
     for graph_ix, cost in enumerate(costs):

@@ -8,3 +8,4 @@ graphviz
 pymp-pypi
 pylru
 sortedcontainers
+pyyaml

@@ -1,0 +1,31 @@
+name: 'obs_1'
+telescope: 'SKA1_Low'
+band: 'Low'
+pipeline: 'ICAL' # One of ['Ingest', 'RCAL', 'FastImg', 'ICAL', 'DPrepA', 'DPrepA_Image', 'DPrepB', 'DPrepC', 'DPrepD', 'PSS', 'PST', 'SinglePulse']
+Bmax: 100000  # Actually constructed max baseline in *m*
+# Effective station diameter defined to be 38 metres in ECP-170049.
+Ds: 38  # station diameter in metres
+Na: 512  # number of stations
+Nbeam: 2  # number of beams
+Nf_max: 32768  # maximum number of channels
+B_dump_ref: 65000  # m
+Tint_min: 0.9  # Minimum correlator integration time (dump time) in *sec* - in reference design
+freq_min: 50000000
+freq_max: 200000000
+Tobs: 18000
+Tpoint: 7200000
+Texp: 18000000
+# Baseline length distribution calculated from layout in
+# SKA-TEL-SKO-0000422, Rev 03 (corresponding to ECP-170049),
+# see Absolute_Baseline_length_distribution.ipynb
+# baseline_bins: [4062.5, 8125, 16250, 32500, 65000]
+# baseline_bin_distribution: [46.30065759, 13.06774736, 14.78360606, 18.58770454, 7.26028445]
+#o.amp_f_max: 1.08  # Added by Rosie Bolton, 1.02 is consistent with the dump time of 0.08s at 200km BL.
+# o.NAProducts: o.nr_baselines # We must model the ionosphere for each station
+NAProducts: 'all' # We must model the ionosphere for each station
+tRCAL_G: 10.0
+tICAL_G: 1.0 # Solution interval for Antenna gains
+tICAL_B: 3600.0  # Solution interval for Bandpass
+tICAL_I: 10.0 # Solution interval for Ionosphere
+NIpatches: 30 # Number of ionospheric patches to solve
+Qfov: 2.7 # Field of view quotient

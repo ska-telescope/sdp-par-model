@@ -40,7 +40,7 @@ test:
         notebooks/SKA1_Export.ipynb
         notebooks/SKA1_SDP_Products.ipynb
         notebooks/SKA1_Imaging_Performance_Model.ipynb
-        notebooks/SKA1_Scheduling_New.ipynb
+        notebooks/SKA1_Scheduling.ipynb
         tests
   artifacts:
     paths: [htmlcov/, junit.xml]
