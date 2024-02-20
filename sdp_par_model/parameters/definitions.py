@@ -47,10 +47,12 @@ class Telescopes:
     SKA1_Mid = 'SKA1_Mid'
     SKA1_Mid_AA1 = 'SKA1_Mid_AA1'
     SKA1_Mid_AA2 = 'SKA1_Mid_AA2'
+    LOFAR_LBA = 'LOFAR_LBA'
+    LOFAR_HBA = 'LOFAR_HBA'
 
     # Currently supported telescopes (will show up in notebooks)
     available_teles = [SKA1_Low, SKA1_Low_AA05, SKA1_Low_AA1, SKA1_Low_AA2, SKA1_Low_AA3,
-                       SKA1_Mid, SKA1_Mid_AA2]
+                       SKA1_Mid, SKA1_Mid_AA2, LOFAR_HBA]
 
 class Bands:
     """
@@ -62,6 +64,11 @@ class Bands:
     Mid2 = 'Mid2'
     Mid5a = 'Mid5a'
     Mid5b = 'Mid5b'
+    LofarLow1 = 'LofarLow1'
+    LofarLow2 = 'LofarLow2'
+    LofarHigh1 = 'LofarHigh1'
+    LofarHigh2 = 'LofarHigh2'
+    LofarHigh3 = 'LofarHigh3'
 
     # group the bands defined above into logically coherent sets
     telescope_bands = {
@@ -72,6 +79,8 @@ class Bands:
         Telescopes.SKA1_Low_AA3 : [ Low ],
         Telescopes.SKA1_Mid : [ Mid1, Mid2, Mid5a, Mid5b ],
         Telescopes.SKA1_Mid_AA2 : [ Mid1, Mid2, Mid5a, Mid5b ],
+        Telescopes.LOFAR_LBA : [ LofarLow1, LofarLow2 ],
+        Telescopes.LOFAR_HBA : [ LofarHigh1, LofarHigh2, LofarHigh3 ],
     }
     available_bands = list(itertools.chain.from_iterable(telescope_bands.values()))
 
@@ -372,6 +381,7 @@ def apply_global_parameters(o):
     o.Qw = 1.0
     o.Qpix = 2.5  # Quality factor of synthesised beam oversampling
     o.Qfov = 1.0 # Define this in case not defined below
+    o.Qfov_nosmear = 0.67 # Field of view factor for visibility averaging calculation
     o.amp_f_max = 1.02  # Added by Rosie Bolton, 1.02 is consistent with the dump time of 0.08s at 200km BL.
     o.Tion = 10.0  #This was previously set to 60s (for PDR) May wish to use much smaller value.
     o.Nf_min = 40  #minimum number of channels to still enable distributed computing, and to reconstruct 5 Taylor terms
@@ -478,12 +488,12 @@ def apply_telescope_parameters(o, telescope):
             o.baseline_bin_distribution = np.array(
                 [29.41176471,  0.        ,  0.        ,  0.        , 70.58823529])
         elif telescope == Telescopes.SKA1_Low_AA2:
-            o.Bmax = 34367  # Actually constructed max baseline in *m*
+            o.Bmax = 40000  # Actually constructed max baseline in *m*
             o.Na = 64  # number of stations
             o.Nf_max = 65536 // 2  # maximum number of channels
-            o.baseline_bins = np.array((o.Bmax/16., o.Bmax/8., o.Bmax/4., o.Bmax/2., o.Bmax))
+            o.baseline_bins = np.array((o.Bmax/64., o.Bmax/32., o.Bmax/16., o.Bmax/8., o.Bmax/4., o.Bmax/2., o.Bmax))
             o.baseline_bin_distribution = np.array(
-                [41.68734491,  3.57320099, 36.92307692,  0.5955335,  17.22084367])
+                [38.54166667,  3.125     ,  0.        , 12.45039683, 28.62103175, 0.        , 17.26190476])
         elif telescope == Telescopes.SKA1_Low_AA3:
             o.Bmax = 74000  # Actually constructed max baseline in *m*
             o.Na = 306  # number of stations
@@ -556,8 +566,25 @@ def apply_telescope_parameters(o, telescope):
         o.NIpatches = 1 # Number of ionospheric patches to solve
         #o.Tion = 3600
 
+    elif telescope == Telescopes.LOFAR_HBA:
+        o.Ds = 41.05  # station diameter in metres
+        o.Bmax = 121000  # Actually constructed max baseline in *m*
+        o.Na = 62  # number of stations
+        o.Nf_max = 488 * 256  # maximum number of channels
+        o.baseline_bins = np.array((o.Bmax/64.0, o.Bmax/32.0, o.Bmax/16., o.Bmax/8., o.Bmax/4., o.Bmax/2., o.Bmax))
+        o.baseline_bin_distribution = np.array((52.2474881 ,  9.36012692,  5.39397144,  8.67265997,  8.93707033, 11.95134849,  3.43733474))
+        o.B_dump_ref = o.Bmax  # m
+        o.Nbeam = 1  # number of beams
+        o.Tint_min = 1.0006633  # Minimum correlator integration time (dump time) in *sec* - in reference design
+        o.NAProducts = 'all' # We must model the ionosphere for each station
+        o.tRCAL_G = 10.0
+        o.tICAL_G = 1.0 # Solution interval for Antenna gains
+        o.tICAL_B = 3600.0  # Solution interval for Bandpass
+        o.tICAL_I = 10.0 # Solution interval for Ionosphere
+        o.NIpatches = 30 # Number of ionospheric patches to solve
+
     else:
-        raise Exception('Unknown Telescope!')
+        raise Exception(f'Unknown Telescope: {telescope}')
 
     o.telescope = telescope
     return o
@@ -591,6 +618,19 @@ def apply_band_parameters(o, band):
         o.telescope = Telescopes.SKA1_Mid
         o.freq_min = 8.3e9
         o.freq_max = 15.4e9
+    # Taken from https://www.aanda.org/articles/aa/pdf/2013/08/aa20873-12.pdf table 2
+    elif band == Bands.LofarHigh1: # 200 MHz sampling (2nd Nyquist zone)
+        o.telescope = Telescopes.LOFAR_HBA
+        o.freq_min = 110e6
+        o.freq_max = 190e6
+    elif band == Bands.LofarHigh2: # 160 MHz sampling (3rd Nyquist zone)
+        o.telescope = Telescopes.LOFAR_HBA
+        o.freq_min = 170e6
+        o.freq_max = 230e6
+    elif band == Bands.LofarHigh3: # 200 MHz sampling (3rd Nyquist zone)
+        o.telescope = Telescopes.LOFAR_HBA
+        o.freq_min = 210e6
+        o.freq_max = 220e6
     else:
         raise Exception('Unknown Band!')
 
