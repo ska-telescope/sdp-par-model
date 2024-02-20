@@ -164,6 +164,8 @@ def _apply_image_equations(o):
                   / (pi * o.Ds * o.Nfacet)
     # Total linear field of view of map (all facets)
     o.Theta_fov_total = 7.66 * o.wl_sb_max * o.Qfov / (pi * o.Ds)
+    # Total linear field of view of map (all facets)
+    o.Theta_fov_nosmear = 7.66 * o.wl_sb_max * o.Qfov_nosmear / (pi * o.Ds)
     # Synthesized beam at fiducial wavelength. Called Theta_PSF in PDR05.
     o.Theta_beam = 3 * o.wl_sb_min / (2. * o.Bmax)
     # Pixel size at fiducial wavelength.
@@ -192,7 +194,7 @@ def _apply_image_equations(o):
     #Correlator dump rate set by smearing limit at field of view needed
     #for ICAL pipeline (Assuming this is always most challenging)
     o.Tdump_no_smear=o.epsilon_f_approx * o.wl \
-                / (o.Omega_E * o.Bmax * 7.66 * o.wl_sb_max * o.Qfov_ICAL / (pi * o.Ds))
+                / (o.Omega_E * o.Bmax * 7.66 * o.wl_sb_max * o.Qfov_nosmear / (pi * o.Ds))
     o.Tint_used = Max(o.Tint_min, Min(o.Tdump_no_smear, o.Tsnap))
 
 
@@ -220,11 +222,11 @@ def _apply_channel_equations(o, symbolify):
     # max baseline respectively.  These limit bandwidth smearing
     # to within a fraction (epsilon_f_approx) of a uv cell.
     o.Nf_no_smear = \
-        log_wl_ratio / log(1 + (3 * o.wl / (2. * o.Bmax * o.Theta_fov_total * o.Qbw)))
+        log_wl_ratio / log(1 + (3 * o.wl / (2. * o.Bmax * o.Theta_fov_nosmear * o.Qbw)))
     o.Nf_no_smear_backward = BLDep(b,
-        log_wl_ratio / log(1 + (3 * o.wl / (2. * b * o.Theta_fov * o.Qbw))))
+        log_wl_ratio / log(1 + (3 * o.wl / (2. * b * Min(o.Theta_fov, o.Theta_fov_nosmear) * o.Qbw))))
     o.Nf_no_smear_predict = BLDep(b,
-        log_wl_ratio / log(1 + (3 * o.wl / (2. * b * o.Theta_fov_predict * o.Qbw))))
+        log_wl_ratio / log(1 + (3 * o.wl / (2. * b * Min(o.Theta_fov_predict, o.Theta_fov_nosmear) * o.Qbw))))
 
     # The number of visibility channels used in each direction
     # (includes effects of averaging). Bound by minimum parallism
