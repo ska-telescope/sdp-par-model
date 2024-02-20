@@ -187,7 +187,7 @@ class PipelineConfig:
         elif hasattr(self, "yaml_name"):
             name = f"{self.pipeline} ({self.yaml_name})"
         else:
-            name = self.pipeline + " (" + self.band + ")"
+            name = self.pipeline + ' (' + self.telescope + ":" + self.band + ')'
 
         # Add modifiers
         for n, val in self.adjusts.items():
