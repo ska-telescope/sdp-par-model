@@ -47,12 +47,13 @@ class Telescopes:
     SKA1_Mid = 'SKA1_Mid'
     SKA1_Mid_AA1 = 'SKA1_Mid_AA1'
     SKA1_Mid_AA2 = 'SKA1_Mid_AA2'
+    SKA1_Mid_AAs = 'SKA1_Mid_AAs'
     LOFAR_LBA = 'LOFAR_LBA'
     LOFAR_HBA = 'LOFAR_HBA'
 
     # Currently supported telescopes (will show up in notebooks)
     available_teles = [SKA1_Low, SKA1_Low_AA05, SKA1_Low_AA1, SKA1_Low_AA2, SKA1_Low_AA3,
-                       SKA1_Mid, SKA1_Mid_AA2, LOFAR_HBA]
+                       SKA1_Mid, SKA1_Mid_AA2, SKA1_Mid_AAs, LOFAR_HBA]
 
 class Bands:
     """
@@ -79,6 +80,7 @@ class Bands:
         Telescopes.SKA1_Low_AA3 : [ Low ],
         Telescopes.SKA1_Mid : [ Mid1, Mid2, Mid5a, Mid5b ],
         Telescopes.SKA1_Mid_AA2 : [ Mid1, Mid2, Mid5a, Mid5b ],
+        Telescopes.SKA1_Mid_AAs : [ Mid1, Mid2, Mid5a, Mid5b ],
         Telescopes.LOFAR_LBA : [ LofarLow1, LofarLow2 ],
         Telescopes.LOFAR_HBA : [ LofarHigh1, LofarHigh2, LofarHigh3 ],
     }
@@ -193,13 +195,13 @@ class HPSOs:
     max_mid_band5b_2 = 'max_mid_band5b_2'
 
     hpso_telescopes = {
-        hpso01:  Telescopes.SKA1_Low,
-        hpso02a: Telescopes.SKA1_Low,
-        hpso02b: Telescopes.SKA1_Low,
-        hpso04a: Telescopes.SKA1_Low,
+        hpso01:  Telescopes.SKA1_Low_AA3,
+        hpso02a: Telescopes.SKA1_Low_AA3,
+        hpso02b: Telescopes.SKA1_Low_AA3,
+        hpso04a: Telescopes.SKA1_Low_AA3,
         hpso04b: Telescopes.SKA1_Mid,
         hpso04c: Telescopes.SKA1_Mid,
-        hpso05a: Telescopes.SKA1_Low,
+        hpso05a: Telescopes.SKA1_Low_AA3,
         hpso05b: Telescopes.SKA1_Mid,
         hpso13:  Telescopes.SKA1_Mid,
         hpso14:  Telescopes.SKA1_Mid,
@@ -490,14 +492,14 @@ def apply_telescope_parameters(o, telescope):
         elif telescope == Telescopes.SKA1_Low_AA2:
             o.Bmax = 40000  # Actually constructed max baseline in *m*
             o.Na = 64  # number of stations
-            o.Nf_max = 65536 // 2  # maximum number of channels
+            o.Nf_max = 27778  # maximum number of channels
             o.baseline_bins = np.array((o.Bmax/64., o.Bmax/32., o.Bmax/16., o.Bmax/8., o.Bmax/4., o.Bmax/2., o.Bmax))
             o.baseline_bin_distribution = np.array(
                 [38.54166667,  3.125     ,  0.        , 12.45039683, 28.62103175, 0.        , 17.26190476])
         elif telescope == Telescopes.SKA1_Low_AA3:
             o.Bmax = 74000  # Actually constructed max baseline in *m*
             o.Na = 306  # number of stations
-            o.Nf_max = 65536  # maximum number of channels
+            o.Nf_max = 55556  # maximum number of channels
             o.baseline_bins = np.array((o.Bmax/16., o.Bmax/8., o.Bmax/4., o.Bmax/2., o.Bmax))
             o.baseline_bin_distribution = np.array(
                 [44.09514626, 22.88224579, 10.95253402, 11.34683382, 10.72324012])
@@ -558,6 +560,31 @@ def apply_telescope_parameters(o, telescope):
         o.baseline_bin_distribution = np.array([63.14484127,  1.19047619,  1.68650794,
                                                 4.41468254, 13.88888889, 9.72222222,
                                                 2.7281746 ,  0.09920635,  3.125     ])
+        #o.NAProducts = 3 # Most antennas can be modelled as the same. [deactivated for now]
+        o.tRCAL_G = 10.0
+        o.tICAL_G = 1.0 # Solution interval for Antenna gains
+        o.tICAL_B = 3600.0  # Solution interval for Bandpass
+        o.tICAL_I = 10.0 # Solution interval for Ionosphere
+        o.NIpatches = 1 # Number of ionospheric patches to solve
+        #o.Tion = 3600
+
+    elif telescope == Telescopes.SKA1_Mid_AAs:
+        o.Bmax = 160000  # Actually constructed max baseline in *m*
+        o.Ds = 13.5  # dish diameter in metres, assume 13.5 as this matches the MeerKAT dishes
+        o.Na = 144 # number of dishes (expressed as the sum of MeerKAT and new dishes)
+        o.Nbeam = 1  # number of beams
+        o.Nf_max = 65536  # maximum number of channels
+        o.Tint_min = 0.19  # Minimum correlator integration time (dump time) in *sec* - in reference design
+        o.B_dump_ref = 160000  # m
+        # Baseline length distribution calculated from layout in
+        # SKA-TEL-INSA-0000537, Rev 04 (corresponding to ECP-1800002),
+        # see Absolute_Baseline_length_distribution.ipynb
+        o.baseline_bins = np.array(( 5000.,   7500.,  10000.,  15000.,  25000., 35000.,  55000.,  75000.,  90000.,
+                                     110000., 130000., 160000.))
+        o.baseline_bin_distribution = np.array([46.60514924,  6.33401686,  3.70243791,  6.70995671,
+                                                8.80610617,  6.49350649, 8.24789246,  7.79220779,
+                                                2.75689223,  2.15311005,  0.23923445,  0.15948963]
+                                               )
         #o.NAProducts = 3 # Most antennas can be modelled as the same. [deactivated for now]
         o.tRCAL_G = 10.0
         o.tICAL_G = 1.0 # Solution interval for Antenna gains
@@ -1413,7 +1440,7 @@ def apply_custom_array_parameters(o, array_config_file, array_config_bins, Bmax)
     :param yaml_parameters: A dictionary of parameters (keys) and their values to be applied to the ParameterContainer object
     :returns: ParameterContainer
     """
-    
+
     row_dtypes = np.dtype([('name', 'U10'), ('lon', 'f8'), ('lat', 'f8')])
     rows = np.loadtxt(array_config_file, usecols=(0, 1, 2), dtype=row_dtypes)
     assert rows[0]['name'] == 'Centre', 'First entry in layout file must be the centre of the array'
@@ -1424,12 +1451,12 @@ def apply_custom_array_parameters(o, array_config_file, array_config_bins, Bmax)
     histogram_bin_edges = np.linspace(0, Bmax, array_config_bins + 1, dtype=np.float64)
     o.baseline_bins = np.array(histogram_bin_edges[1:])
     o.baseline_bin_distribution = antenna_positions_to_baseline_histogram(centre_antenna, all_other_antennas, histogram_bin_edges)
-    
+
     return o
 
 def antenna_positions_to_baseline_histogram(centre_antenna: np.void, all_other_antennas: np.ndarray, histogram_bin_edges: np.ndarray) -> np.ndarray:
         """Converts antenna positions to a histogram of baseline lengths.
-        
+
         Args:
             centre_antenna (np.void): latitude and longitude of the centre antenna.
             all_other_antennas (np.ndarray): array of the latitude and longitude of all the other antennas.
