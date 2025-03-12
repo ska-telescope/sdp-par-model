@@ -43,6 +43,8 @@ class Telescopes:
     SKA1_Low_AA05 = 'SKA1_Low_AA05'
     SKA1_Low_AA1 = 'SKA1_Low_AA1'
     SKA1_Low_AA2 = 'SKA1_Low_AA2'
+    SKA1_Low_AA15p = 'SKA1_Low_AA15p'
+    SKA1_Low_AA2p = 'SKA1_Low_AA2p'
     SKA1_Low_AA3 = 'SKA1_Low_AA3'
     SKA1_Mid = 'SKA1_Mid'
     SKA1_Mid_AA1 = 'SKA1_Mid_AA1'
@@ -52,7 +54,7 @@ class Telescopes:
     LOFAR_HBA = 'LOFAR_HBA'
 
     # Currently supported telescopes (will show up in notebooks)
-    available_teles = [SKA1_Low, SKA1_Low_AA05, SKA1_Low_AA1, SKA1_Low_AA2, SKA1_Low_AA3,
+    available_teles = [SKA1_Low, SKA1_Low_AA05, SKA1_Low_AA1, SKA1_Low_AA2, SKA1_Low_AA15p, SKA1_Low_AA2p, SKA1_Low_AA3,
                        SKA1_Mid, SKA1_Mid_AA2, SKA1_Mid_AAs, LOFAR_HBA]
 
 class Bands:
@@ -61,6 +63,8 @@ class Bands:
     """
     # SKA1 Bands
     Low = 'Low'
+    LowAA1 = 'LowAA1'
+    LowAA2 = 'LowAA2'
     Mid1 = 'Mid1'
     Mid2 = 'Mid2'
     Mid5a = 'Mid5a'
@@ -74,9 +78,11 @@ class Bands:
     # group the bands defined above into logically coherent sets
     telescope_bands = {
         Telescopes.SKA1_Low : [ Low ],
-        Telescopes.SKA1_Low_AA05 : [ Low ],
-        Telescopes.SKA1_Low_AA1 : [ Low ],
-        Telescopes.SKA1_Low_AA2 : [ Low ],
+        Telescopes.SKA1_Low_AA05 : [ LowAA1 ],
+        Telescopes.SKA1_Low_AA1 : [ LowAA1 ],
+        Telescopes.SKA1_Low_AA2 : [ LowAA2 ],
+        Telescopes.SKA1_Low_AA15p : [ LowAA1 ],
+        Telescopes.SKA1_Low_AA2p : [ LowAA2 ],
         Telescopes.SKA1_Low_AA3 : [ Low ],
         Telescopes.SKA1_Mid : [ Mid1, Mid2, Mid5a, Mid5b ],
         Telescopes.SKA1_Mid_AA2 : [ Mid1, Mid2, Mid5a, Mid5b ],
@@ -496,6 +502,20 @@ def apply_telescope_parameters(o, telescope):
             o.baseline_bins = np.array((o.Bmax/64., o.Bmax/32., o.Bmax/16., o.Bmax/8., o.Bmax/4., o.Bmax/2., o.Bmax))
             o.baseline_bin_distribution = np.array(
                 [38.54166667,  3.125     ,  0.        , 12.45039683, 28.62103175, 0.        , 17.26190476])
+        elif telescope == Telescopes.SKA1_Low_AA15p:
+            o.Bmax = 65000  # Actually constructed max baseline in *m*
+            o.Na = 40  # number of stations
+            o.Nf_max = 13824  # maximum number of channels
+            o.baseline_bins = np.array((o.Bmax/16., o.Bmax/8., o.Bmax/4., o.Bmax/2., o.Bmax))
+            o.baseline_bin_distribution = np.array(
+                [ 7.43589744,  3.33333333, 25.76923077, 33.07692308, 30.38461538])
+        elif telescope == Telescopes.SKA1_Low_AA2p:
+            o.Bmax = 65000  # Actually constructed max baseline in *m*
+            o.Na = 68  # number of stations
+            o.Nf_max = 27778  # maximum number of channels
+            o.baseline_bins = np.array((o.Bmax/16., o.Bmax/8., o.Bmax/4., o.Bmax/2., o.Bmax))
+            o.baseline_bin_distribution = np.array(
+                [10.456942,    4.87697715, 30.62390158, 30.71177504, 23.33040422])
         elif telescope == Telescopes.SKA1_Low_AA3:
             o.Bmax = 74000  # Actually constructed max baseline in *m*
             o.Na = 306  # number of stations
@@ -507,7 +527,7 @@ def apply_telescope_parameters(o, telescope):
             raise Exception("Unknown Low telescope!")
         o.B_dump_ref = o.Bmax  # m
         o.Nbeam = 1  # number of beams
-        o.Tint_min = 0.9  # Minimum correlator integration time (dump time) in *sec* - in reference design
+        o.Tint_min = 0.84934656  # Minimum correlator integration time (dump time) in *sec*
         #o.amp_f_max = 1.08  # Added by Rosie Bolton, 1.02 is consistent with the dump time of 0.08s at 200km BL.
         # o.NAProducts = o.nr_baselines # We must model the ionosphere for each station
         o.NAProducts = 'all' # We must model the ionosphere for each station
@@ -629,6 +649,12 @@ def apply_band_parameters(o, band):
     if band == Bands.Low:
         o.freq_min = 0.05e9
         o.freq_max = 0.35e9
+    elif band == Bands.LowAA1:
+        o.freq_min = 0.075e9
+        o.freq_max = 0.175e9
+    elif band == Bands.LowAA2:
+        o.freq_min = 0.075e9
+        o.freq_max = 0.225e9
     elif band == Bands.Mid1:
         o.telescope = Telescopes.SKA1_Mid
         o.freq_min = 0.35e9
@@ -691,7 +717,7 @@ def apply_pipeline_parameters(o, pipeline):
         o.Tobs = 1. * 3600.0  # in seconds
         if o.telescope.startswith(Telescopes.SKA1_Low):
             o.amp_f_max = 1.08
-        elif o.telescope == Telescopes.SKA1_Mid:
+        elif o.telescope.startswith(Telescopes.SKA1_Mid):
             o.amp_f_max = 1.034
 
     elif pipeline == Pipelines.ICAL:
@@ -706,7 +732,7 @@ def apply_pipeline_parameters(o, pipeline):
         o.Tobs = 1. * 3600.0  # in seconds
         if o.telescope.startswith(Telescopes.SKA1_Low):
             o.amp_f_max = 1.08
-        elif o.telescope == Telescopes.SKA1_Mid:
+        elif o.telescope.startswith(Telescopes.SKA1_Mid):
             o.amp_f_max = 1.034
 
     elif pipeline == Pipelines.RCAL:
@@ -721,7 +747,7 @@ def apply_pipeline_parameters(o, pipeline):
         o.Tsolve = 10
         if o.telescope.startswith(Telescopes.SKA1_Low):
             o.amp_f_max = 1.08
-        elif o.telescope == Telescopes.SKA1_Mid:
+        elif o.telescope.startswith(Telescopes.SKA1_Mid):
             o.amp_f_max = 1.034
 
     elif (pipeline == Pipelines.DPrepA) or (pipeline == Pipelines.DPrepA_Image):
@@ -736,7 +762,7 @@ def apply_pipeline_parameters(o, pipeline):
         o.Tobs = 1. * 3600.0  # in seconds
         if o.telescope.startswith(Telescopes.SKA1_Low):
             o.amp_f_max = 1.08
-        elif o.telescope == Telescopes.SKA1_Mid:
+        elif o.telescope.startswith(Telescopes.SKA1_Mid):
             o.amp_f_max = 1.034
 
     elif pipeline == Pipelines.DPrepB:
@@ -751,7 +777,7 @@ def apply_pipeline_parameters(o, pipeline):
         o.Tobs = 1. * 3600.0  # in seconds
         if o.telescope.startswith(Telescopes.SKA1_Low):
             o.amp_f_max = 1.08
-        elif o.telescope == Telescopes.SKA1_Mid:
+        elif o.telescope.startswith(Telescopes.SKA1_Mid):
             o.amp_f_max = 1.034
 
     elif pipeline == Pipelines.DPrepC:
@@ -766,7 +792,7 @@ def apply_pipeline_parameters(o, pipeline):
         o.Tobs = 1. * 3600
         if o.telescope.startswith(Telescopes.SKA1_Low):
             o.amp_f_max = 1.02
-        elif o.telescope == Telescopes.SKA1_Mid:
+        elif o.telescope.startswith(Telescopes.SKA1_Mid):
             o.amp_f_max = 1.01
         else:
             raise Exception("amp_f_max not defined for Spectral mode for the telescope %s" % o.telescope)
@@ -783,7 +809,7 @@ def apply_pipeline_parameters(o, pipeline):
         o.Tobs = 1. * 3600
         if o.telescope.startswith(Telescopes.SKA1_Low):
             o.amp_f_max = 1.02
-        elif o.telescope == Telescopes.SKA1_Mid:
+        elif o.telescope.startswith(Telescopes.SKA1_Mid):
             o.amp_f_max = 1.01
 
     elif pipeline == Pipelines.FastImg:
@@ -800,7 +826,7 @@ def apply_pipeline_parameters(o, pipeline):
         o.Tsnap = o.Tobs
         if o.telescope.startswith(Telescopes.SKA1_Low):
             o.amp_f_max = 1.02
-        elif o.telescope == Telescopes.SKA1_Mid:
+        elif o.telescope.startswith(Telescopes.SKA1_Mid):
             o.amp_f_max = 1.02
 
         o.Nmm = 1 # Off diagonal terms probably not needed?
@@ -808,7 +834,7 @@ def apply_pipeline_parameters(o, pipeline):
     elif pipeline == Pipelines.PSS:
         if o.telescope.startswith(Telescopes.SKA1_Low):
             o.Ntiedbeam = 500
-        elif o.telescope == Telescopes.SKA1_Mid:
+        elif o.telescope.startswith(Telescopes.SKA1_Mid):
             o.Ntiedbeam = 1500
         o.Nf_out = 128
         o.Tobs = 600
@@ -816,7 +842,7 @@ def apply_pipeline_parameters(o, pipeline):
     elif pipeline == Pipelines.SinglePulse:
         if o.telescope.startswith(Telescopes.SKA1_Low):
             o.Ntiedbeam = 500
-        elif o.telescope == Telescopes.SKA1_Mid:
+        elif o.telescope.startswith(Telescopes.SKA1_Mid):
             o.Ntiedbeam = 1500
         o.Nf_out = 1024
         o.Npp = 4
