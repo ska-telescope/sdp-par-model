@@ -1600,5 +1600,9 @@ ALL_PARAMETER_KEYS = [
 "Npatch",
 "Tsolve",
 "Tsnap_min",
-"Tsnap"
+    "Tsnap",
+    "Texp",
+    "Tpoint",
+    "Qfov_nosmear",
+    "Qfov_out",
 ]
