@@ -69,8 +69,6 @@ class Bands:
     Mid2 = 'Mid2'
     Mid5a = 'Mid5a'
     Mid5b = 'Mid5b'
-    LofarLow1 = 'LofarLow1'
-    LofarLow2 = 'LofarLow2'
     LofarHigh1 = 'LofarHigh1'
     LofarHigh2 = 'LofarHigh2'
     LofarHigh3 = 'LofarHigh3'
@@ -87,7 +85,6 @@ class Bands:
         Telescopes.SKA1_Mid : [ Mid1, Mid2, Mid5a, Mid5b ],
         Telescopes.SKA1_Mid_AA2 : [ Mid1, Mid2, Mid5a, Mid5b ],
         Telescopes.SKA1_Mid_AAs : [ Mid1, Mid2, Mid5a, Mid5b ],
-        Telescopes.LOFAR_LBA : [ LofarLow1, LofarLow2 ],
         Telescopes.LOFAR_HBA : [ LofarHigh1, LofarHigh2, LofarHigh3 ],
     }
     available_bands = list(itertools.chain.from_iterable(telescope_bands.values()))
@@ -685,7 +682,7 @@ def apply_band_parameters(o, band):
         o.freq_min = 210e6
         o.freq_max = 220e6
     else:
-        raise Exception('Unknown Band!')
+        raise Exception(f'Unknown Band: {band}')
 
     return o
 
@@ -794,8 +791,6 @@ def apply_pipeline_parameters(o, pipeline):
             o.amp_f_max = 1.02
         elif o.telescope.startswith(Telescopes.SKA1_Mid):
             o.amp_f_max = 1.01
-        else:
-            raise Exception("amp_f_max not defined for Spectral mode for the telescope %s" % o.telescope)
 
     elif pipeline == Pipelines.DPrepD:
         o.Qfov = 1.0  # Field of view factor
@@ -836,6 +831,8 @@ def apply_pipeline_parameters(o, pipeline):
             o.Ntiedbeam = 500
         elif o.telescope.startswith(Telescopes.SKA1_Mid):
             o.Ntiedbeam = 1500
+        else:
+            o.Ntiedbeam = 0
         o.Nf_out = 128
         o.Tobs = 600
 
@@ -844,6 +841,8 @@ def apply_pipeline_parameters(o, pipeline):
             o.Ntiedbeam = 500
         elif o.telescope.startswith(Telescopes.SKA1_Mid):
             o.Ntiedbeam = 1500
+        else:
+            o.Ntiedbeam = 0
         o.Nf_out = 1024
         o.Npp = 4
         o.Tobs = 600
