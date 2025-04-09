@@ -5,6 +5,9 @@ description = "Python implementation of the SKA Science Data Processor parametri
 authors = ["Rosie Bolton", "Francois Malan", "Bojan Nikolic", "Andreas Wicenec", "Peter Wortmann"]
 license = "Apache 2.0"
 readme = "README.md"
+packages = [
+    { include = "src/sdp_par_model" }
+]
 
 [tool.poetry.dependencies]
 python = "^3.10"
