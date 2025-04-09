@@ -1,22 +1,27 @@
-image: "python:latest"
+image: $SKA_K8S_TOOLS_BUILD_DEPLOY
 
-before_script:
-  - python -V
-  - pip install virtualenv
-  - virtualenv venv
-  - source venv/bin/activate
-  - pip install -r requirements.txt
-      pytest pytest-xdist nbval pytest-cov pytest-rerunfailures
-
-# Set up caching as suggested by GitLab's Python template
 variables:
-  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
-cache:
-  paths: [.cache/pip,venv]
+  GIT_SUBMODULE_STRATEGY: recursive
 
 stages:
-  - test
-  - deploy
+- lint
+- test
+- scan
+- build
+- publish
+
+include:
+  - project: 'ska-telescope/templates-repository'
+    file:
+      # Python jobs
+      - 'gitlab-ci/includes/python.gitlab-ci.yml'
+      # Documentation build jobs
+      - 'gitlab-ci/includes/docs-build.gitlab-ci.yml'
+      # Release jobs
+      - 'gitlab-ci/includes/release.gitlab-ci.yml'
+      # Finaliser job
+      - 'gitlab-ci/includes/finaliser.gitlab-ci.yml'
+
 
 # Execute all available code. Most of our "tests" are actually the
 # notebooks, so we use the nbval extension to pull them into py.test.
@@ -54,7 +59,7 @@ test:
 # 2. All the notebooks (note that this will re-run them)
 # 3. Coverage reports
 pages:
-  stage: deploy
+  stage: publish
   tags: [k8srunner]
   only: [master]
   dependencies: [test] # For coverage
