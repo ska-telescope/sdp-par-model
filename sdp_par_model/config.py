@@ -171,8 +171,8 @@ class PipelineConfig:
             
             self.yaml_parameters[key] = config_dict[key]
             
-            assert self.yaml_parameters.get("name", None), "Observation name must be specified in yaml."
-            self.name = self.yaml_parameters["name"]
+        assert self.yaml_parameters.get("name", None), "Observation name must be specified in yaml."
+        self.name = self.yaml_parameters["name"]
             
         # Add yaml file name attribute so PipelineConfig.describe() method displays the yaml
         self.yaml_name = os.path.split(yaml_path)[1]
