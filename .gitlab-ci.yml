@@ -42,7 +42,7 @@ notebook-test:
     - poetry config virtualenvs.in-project true
     - poetry config virtualenvs.create $POETRY_CONFIG_VIRTUALENVS_CREATE
     - poetry install --with=dev
-    - pytest --verbose --color=yes --junitxml=junit.xml
+    - PYTHONPATH=src pytest --verbose --color=yes --junitxml=junit.xml
         --cov=sdp_par_model --cov-report=term --cov-report=html
         -n 4 --dist loadscope --nbval-lax
         notebooks/SKA1_Export.ipynb
