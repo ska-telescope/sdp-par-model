@@ -4,21 +4,33 @@ the telescopes' performance values and computional requirements from
 the supplied basic parameters defined in ParameterDefinitions.
 """
 
-from __future__ import print_function  # Makes Python-3 style print() function available in Python 2.x
+from __future__ import (
+    print_function,  # Makes Python-3 style print() function available in Python 2.x
+)
 
 import math
 import warnings
 
-from numpy import pi, round
 import sympy
-from sympy import log, Min, Max, sqrt, floor, sign, ceiling, Symbol, sin, Function
+from numpy import pi, round
+from sympy import (
+    Function,
+    Max,
+    Min,
+    Symbol,
+    ceiling,
+    floor,
+    log,
+    sign,
+    sin,
+    sqrt,
+)
 
-from .definitions import Pipelines, Products, Constants
-from .container import ParameterContainer, BLDep, blsum
+from .container import BLDep, ParameterContainer, blsum
+from .definitions import Constants, Pipelines, Products
 
 # Check sympy compatibility
 if sympy.__version__ == "1.0":
-
     # There seems to be a bug that leads sympy 1.0.0 into an infinite
     # loop when using non-natural logarithms. Thanks to Juande
     # Santander-Vela for discovering the workaround.
@@ -28,7 +40,10 @@ if sympy.__version__ == "1.0":
         else:
             return sympy.log(v) / math.log(b)
 
-def apply_imaging_equations(telescope_parameters, pipeline, bins, binfracs, verbose, symbolify=''):
+
+def apply_imaging_equations(
+    telescope_parameters, pipeline, bins, binfracs, verbose, symbolify=""
+):
     """
     (Symbolically) computes a set of derived parameters using imaging
     equations described in PDR05 (version 1.85).
@@ -48,24 +63,28 @@ def apply_imaging_equations(telescope_parameters, pipeline, bins, binfracs, verb
 
     o = telescope_parameters  # Used for shorthand in the equations below
     assert isinstance(o, ParameterContainer)
-    assert hasattr(o, "c")  # Checks initialization by proxy of whether the speed of light is defined
+    assert hasattr(
+        o, "c"
+    )  # Checks initialization by proxy of whether the speed of light is defined
 
     # Store parameters
-    if not hasattr(o, 'pipeline') or o.pipeline != pipeline:
-        o.set_param('pipeline', pipeline)  # e.g. ICAL, DPprepA
+    if not hasattr(o, "pipeline") or o.pipeline != pipeline:
+        o.set_param("pipeline", pipeline)  # e.g. ICAL, DPprepA
 
     # Check parameters
-    if hasattr(o, 'Tobs') and (o.Tobs < 10.0):
+    if hasattr(o, "Tobs") and (o.Tobs < 10.0):
         o.Tsnap_min = o.Tobs
         if verbose:
-            print('Warning: Tsnap_min overwritten in equations.py file because observation was shorter than 10s')
+            print(
+                "Warning: Tsnap_min overwritten in equations.py file because observation was shorter than 10s"
+            )
 
     # Load common equations.
     _apply_common_equations(o, bins, binfracs)
 
     # If requested, we replace all parameters so far with symbols,
     # so product equations are purely symbolic.
-    if symbolify == 'all':
+    if symbolify == "all":
         o.symbolify()
 
     # Non-imaging pipelines are handled separately
@@ -78,7 +97,7 @@ def apply_imaging_equations(telescope_parameters, pipeline, bins, binfracs, verb
     # Apply general imaging equations. These next 4 methods just set up
     # parameters.
     _apply_image_equations(o)
-    if symbolify == 'helper':
+    if symbolify == "helper":
         o.symbolify()
     _apply_channel_equations(o, symbolify)
     _apply_coalesce_equations(o, symbolify)
@@ -87,7 +106,7 @@ def apply_imaging_equations(telescope_parameters, pipeline, bins, binfracs, verb
 
     # If requested, we replace all parameters so far with symbols,
     # so product equations are purely symbolic.
-    if symbolify == 'product':
+    if symbolify == "product":
         o.symbolify()
 
     # Apply product equations to fill in the Rflop estimates (and others when they arrive).
@@ -120,16 +139,17 @@ def _apply_common_equations(o, bins, binfracs):
 
     # Derive simple parameters. Note that we ignore some baselines
     # when Bmax is lower than the telescope's maximum.
-    #o.Na = 512 * (35.0/o.Ds)**2 #Hack to make station diameter and station number inter-related...comment it out after use
+    # o.Na = 512 * (35.0/o.Ds)**2 #Hack to make station diameter and station number inter-related...comment it out after use
     o.Nbl_full = o.Na * (o.Na - 1) / 2.0
     o.Nbl = sum(binfracs) * o.Nbl_full
 
     # Build baseline bins
-    o.baseline_bins = list([
-        { 'b': bmax,
-          'bfrac': frac,
-          'bcount': frac * o.Nbl_full
-        } for bmax, frac in zip(bins, binfracs)])
+    o.baseline_bins = list(
+        [
+            {"b": bmax, "bfrac": frac, "bcount": frac * o.Nbl_full}
+            for bmax, frac in zip(bins, binfracs)
+        ]
+    )
 
     # Wavelengths
     o.wl_max = o.c / o.freq_min  # Maximum Wavelength
@@ -137,9 +157,10 @@ def _apply_common_equations(o, bins, binfracs):
     o.wl = 0.5 * (o.wl_max + o.wl_min)  # Representative Wavelength
 
     # Calculate number of subbands
-    o.Nsubbands = ceiling(log(o.wl_max/o.wl_min)/log(o.max_subband_freq_ratio))
-    o.Qsubband = (o.wl_max/o.wl_min)**(1./o.Nsubbands)
-
+    o.Nsubbands = ceiling(
+        log(o.wl_max / o.wl_min) / log(o.max_subband_freq_ratio)
+    )
+    o.Qsubband = (o.wl_max / o.wl_min) ** (1.0 / o.Nsubbands)
 
 
 def _apply_image_equations(o):
@@ -152,28 +173,29 @@ def _apply_image_equations(o):
     """
 
     # max subband wavelength to set image FoV
-    o.wl_sb_max = o.wl *sqrt(o.Qsubband)
+    o.wl_sb_max = o.wl * sqrt(o.Qsubband)
     # min subband wavelength to set pixel size
     o.wl_sb_min = o.wl_sb_max / o.Qsubband
 
     # Facet overlap is only needed if Nfacet > 1
-    o.r_facet = sign(o.Nfacet - 1)*o.r_facet_base
+    o.r_facet = sign(o.Nfacet - 1) * o.r_facet_base
 
     # Facet Field-of-view (linear) at max sub-band wavelength
-    o.Theta_fov = 7.66 * o.wl_sb_max * o.Qfov * (1+o.r_facet) \
-                  / (pi * o.Ds * o.Nfacet)
+    o.Theta_fov = (
+        7.66 * o.wl_sb_max * o.Qfov * (1 + o.r_facet) / (pi * o.Ds * o.Nfacet)
+    )
     # Total linear field of view of map (all facets)
     o.Theta_fov_total = 7.66 * o.wl_sb_max * o.Qfov / (pi * o.Ds)
     # Total linear field of view of map (all facets)
     o.Theta_fov_nosmear = 7.66 * o.wl_sb_max * o.Qfov_nosmear / (pi * o.Ds)
     # Synthesized beam at fiducial wavelength. Called Theta_PSF in PDR05.
-    o.Theta_beam = 3 * o.wl_sb_min / (2. * o.Bmax)
+    o.Theta_beam = 3 * o.wl_sb_min / (2.0 * o.Bmax)
     # Pixel size at fiducial wavelength.
-    o.Theta_pix = o.Theta_beam / (2. * o.Qpix)
+    o.Theta_pix = o.Theta_beam / (2.0 * o.Qpix)
 
     # Number of pixels on side of facet in subband.
-    o.Npix_linear = (o.Theta_fov / o.Theta_pix)
-    o.Npix_linear_fov_total = (o.Theta_fov_total / o.Theta_pix)
+    o.Npix_linear = o.Theta_fov / o.Theta_pix
+    o.Npix_linear_fov_total = o.Theta_fov_total / o.Theta_pix
 
     # grid width in wavelengths
     o.Lambda_grid = 1 / o.Theta_pix
@@ -190,11 +212,21 @@ def _apply_image_equations(o):
         o.Npix_linear_predict = o.Npix_linear_fov_total
 
     # expansion of sine solves eps = arcsinc(1/amp_f_max).
-    o.epsilon_f_approx = sqrt(6 * (1 - (1. / o.amp_f_max)))
-    #Correlator dump rate set by smearing limit at field of view needed
-    #for ICAL pipeline (Assuming this is always most challenging)
-    o.Tdump_no_smear=o.epsilon_f_approx * o.wl \
-                / (o.Omega_E * o.Bmax * 7.66 * o.wl_sb_max * o.Qfov_nosmear / (pi * o.Ds))
+    o.epsilon_f_approx = sqrt(6 * (1 - (1.0 / o.amp_f_max)))
+    # Correlator dump rate set by smearing limit at field of view needed
+    # for ICAL pipeline (Assuming this is always most challenging)
+    o.Tdump_no_smear = (
+        o.epsilon_f_approx
+        * o.wl
+        / (
+            o.Omega_E
+            * o.Bmax
+            * 7.66
+            * o.wl_sb_max
+            * o.Qfov_nosmear
+            / (pi * o.Ds)
+        )
+    )
     o.Tint_used = Max(o.Tint_min, Min(o.Tdump_no_smear, o.Tsnap))
 
 
@@ -208,36 +240,71 @@ def _apply_channel_equations(o, symbolify):
      * SKA-TEL-SDP-0000040 01D section D - Visibility Averaging and Coalescing
     """
 
-    b = Symbol('b')
+    b = Symbol("b")
     log_wl_ratio = log(o.wl_max / o.wl_min)
 
     # See notes on https://confluence.ska-sdp.org/display/PIP/Frequency+resolution+and+smearing+effects+in+the+iPython+SDP+Parametric+model
     o.Qbw = 1.47 / o.epsilon_f_approx
 
-    if symbolify == 'helper':
-        o.epsilon_f_approx = Symbol(o.make_symbol_name('epsilon_f_approx'))
-        o.Qbw = Symbol(o.make_symbol_name('Qbw'))
+    if symbolify == "helper":
+        o.epsilon_f_approx = Symbol(o.make_symbol_name("epsilon_f_approx"))
+        o.Qbw = Symbol(o.make_symbol_name("Qbw"))
 
     # Frequency number to avoid smearing for full and facet FOV at
     # max baseline respectively.  These limit bandwidth smearing
     # to within a fraction (epsilon_f_approx) of a uv cell.
-    o.Nf_no_smear = \
-        log_wl_ratio / log(1 + (3 * o.wl / (2. * o.Bmax * o.Theta_fov_nosmear * o.Qbw)))
-    o.Nf_no_smear_backward = BLDep(b,
-        log_wl_ratio / log(1 + (3 * o.wl / (2. * b * Min(o.Theta_fov, o.Theta_fov_nosmear) * o.Qbw))))
-    o.Nf_no_smear_predict = BLDep(b,
-        log_wl_ratio / log(1 + (3 * o.wl / (2. * b * Min(o.Theta_fov_predict, o.Theta_fov_nosmear) * o.Qbw))))
+    o.Nf_no_smear = log_wl_ratio / log(
+        1 + (3 * o.wl / (2.0 * o.Bmax * o.Theta_fov_nosmear * o.Qbw))
+    )
+    o.Nf_no_smear_backward = BLDep(
+        b,
+        log_wl_ratio
+        / log(
+            1
+            + (
+                3
+                * o.wl
+                / (2.0 * b * Min(o.Theta_fov, o.Theta_fov_nosmear) * o.Qbw)
+            )
+        ),
+    )
+    o.Nf_no_smear_predict = BLDep(
+        b,
+        log_wl_ratio
+        / log(
+            1
+            + (
+                3
+                * o.wl
+                / (
+                    2.0
+                    * b
+                    * Min(o.Theta_fov_predict, o.Theta_fov_nosmear)
+                    * o.Qbw
+                )
+            )
+        ),
+    )
 
     # The number of visibility channels used in each direction
     # (includes effects of averaging). Bound by minimum parallism
     # and input channel count.
-    o.Nf_vis = BLDep(b,
-        Min(Max(o.Nf_out, o.Nf_no_smear),o.Nf_max))
-    o.Nf_vis_backward = BLDep(b,
-        Min(Max(o.Nf_out, o.Nf_no_smear_backward(b)),o.Nf_max))
-    o.Nf_vis_predict = BLDep(b,
-        Min(Max(o.Nf_out, o.Nf_no_smear_predict(b if o.scale_predict_by_facet else o.Bmax)),
-            o.Nf_max))
+    o.Nf_vis = BLDep(b, Min(Max(o.Nf_out, o.Nf_no_smear), o.Nf_max))
+    o.Nf_vis_backward = BLDep(
+        b, Min(Max(o.Nf_out, o.Nf_no_smear_backward(b)), o.Nf_max)
+    )
+    o.Nf_vis_predict = BLDep(
+        b,
+        Min(
+            Max(
+                o.Nf_out,
+                o.Nf_no_smear_predict(
+                    b if o.scale_predict_by_facet else o.Bmax
+                ),
+            ),
+            o.Nf_max,
+        ),
+    )
 
     # Determine frequency buckets we need to do FFT for
     o.Nf_FFT_backward = o.Nf_out
@@ -256,6 +323,7 @@ def _apply_channel_equations(o, symbolify):
         o.Nf_proj_predict = o.Ntt
         o.Nf_proj_backward = o.Ntt
 
+
 def _apply_coalesce_equations(o, symbolify):
     """
     Determines amount of coalescing of visibilities in time.
@@ -273,26 +341,36 @@ def _apply_coalesce_equations(o, symbolify):
     # but reduce that requirement to the actual facet field of
     # view later. We also assume that we can chose these two
     # averaging degrees independently without any ill effects.
-    b = Symbol('b')
-    combine_samples = lambda theta: BLDep(b,
-        Max(Min(floor(o.epsilon_f_approx * o.wl /
-                      (theta * o.Omega_E * b * o.Tint_used)),
-                o.Tsnap / o.Tint_used), 1.))
+    b = Symbol("b")
+    combine_samples = lambda theta: BLDep(
+        b,
+        Max(
+            Min(
+                floor(
+                    o.epsilon_f_approx
+                    * o.wl
+                    / (theta * o.Omega_E * b * o.Tint_used)
+                ),
+                o.Tsnap / o.Tint_used,
+            ),
+            1.0,
+        ),
+    )
     o.combine_time_samples = combine_samples(o.Theta_fov_total)
     o.combine_time_samples_facet = combine_samples(o.Theta_fov)
 
     # coalesce visibilities in time.
-    o.Tcoal_skipper = BLDep(b,
-        o.Tint_used * o.combine_time_samples(b))
-    if symbolify == 'helper':
+    o.Tcoal_skipper = BLDep(b, o.Tint_used * o.combine_time_samples(b))
+    if symbolify == "helper":
         o.Tcoal_skipper = Symbol(o.make_symbol_name("Tcoal_skipper"))
 
     if o.blcoal:
         # For backward step at gridding only, allow coalescance of
         # visibility points at Facet FoV smearing limit only for
         # bl-dep averaging case.
-        o.Tcoal_backward = BLDep(b,
-            Min(o.Tint_used * o.combine_time_samples_facet(b), o.Tion))
+        o.Tcoal_backward = BLDep(
+            b, Min(o.Tint_used * o.combine_time_samples_facet(b), o.Tion)
+        )
         if o.scale_predict_by_facet:
             o.Tcoal_predict = BLDep(b, o.Tcoal_backward(b))
         else:
@@ -335,35 +413,45 @@ def _apply_geometry_equations(o, symbolify):
       * SKA-TEL-SDP-0000040 01D section H.1 - Imaging Pipeline Geometry Assumptions
     """
 
-    b = Symbol('b')
+    b = Symbol("b")
 
     # Contribution of earth curvature to w-term
-    o.DeltaW_Earth = BLDep(b, b ** 2 / (8. * o.R_Earth * o.wl))
+    o.DeltaW_Earth = BLDep(b, b**2 / (8.0 * o.R_Earth * o.wl))
     # Contribution of earth movement to w-term
-    o.DeltaW_SShot = BLDep(b, b * sin(o.Omega_E * o.Tsnap) / (2. * o.wl))
+    o.DeltaW_SShot = BLDep(b, b * sin(o.Omega_E * o.Tsnap) / (2.0 * o.wl))
     o.DeltaW_max = BLDep(b, o.Qw * Max(o.DeltaW_SShot(b), o.DeltaW_Earth(b)))
-    if symbolify == 'helper':
-        o.DeltaW_Earth = Function(o.make_symbol_name('DeltaW_Earth'))
-        o.DeltaW_SShot = Function(o.make_symbol_name('DeltaW_SShot'))
-        o.DeltaW_max = Function(o.make_symbol_name('DeltaW_max'))
+    if symbolify == "helper":
+        o.DeltaW_Earth = Function(o.make_symbol_name("DeltaW_Earth"))
+        o.DeltaW_SShot = Function(o.make_symbol_name("DeltaW_SShot"))
+        o.DeltaW_max = Function(o.make_symbol_name("DeltaW_max"))
     o.DeltaW_wproj = BLDep(b, Min(o.DeltaW_stack, o.DeltaW_max(b)))
 
     # Eq. 25, w-kernel support size. Note possible difference in
     # cellsize assumption!
     def Ngw(deltaw, fov):
-        return 2 * fov * sqrt((deltaw * fov / 2.) ** 2 +
-                              (deltaw**1.5 * fov / (2 * pi * o.epsilon_w)))
+        return (
+            2
+            * fov
+            * sqrt(
+                (deltaw * fov / 2.0) ** 2
+                + (deltaw**1.5 * fov / (2 * pi * o.epsilon_w))
+            )
+        )
+
     o.Ngw_backward = BLDep(b, Ngw(o.DeltaW_wproj(b), o.Theta_fov))
     o.Ngw_predict = BLDep(b, Ngw(o.DeltaW_wproj(b), o.Theta_fov_predict))
 
-
     # TODO: Check split of kernel size for backward and predict steps.
     # squared linear size of combined W and A kernels; used in eqs 23 and 32
-    o.Nkernel_AW_backward = BLDep(b, (o.Ngw_backward(b) ** 2 + o.Naa ** 2)**0.5)
-    o.Nkernel2_backward = BLDep(b, o.Nkernel_AW_backward(b)**2)
+    o.Nkernel_AW_backward = BLDep(
+        b, (o.Ngw_backward(b) ** 2 + o.Naa**2) ** 0.5
+    )
+    o.Nkernel2_backward = BLDep(b, o.Nkernel_AW_backward(b) ** 2)
     # squared linear size of combined W and A kernels; used in eqs 23 and 32
-    o.Nkernel_AW_predict = BLDep(b, (o.Ngw_predict(b) ** 2 + o.Naa ** 2)**0.5)
-    o.Nkernel2_predict = BLDep(b, o.Nkernel_AW_predict(b)**2)
+    o.Nkernel_AW_predict = BLDep(
+        b, (o.Ngw_predict(b) ** 2 + o.Naa**2) ** 0.5
+    )
+    o.Nkernel2_predict = BLDep(b, o.Nkernel_AW_predict(b) ** 2)
 
 
 def _apply_ingest_equations(o):
@@ -374,37 +462,58 @@ def _apply_ingest_equations(o):
     """
 
     if o.pipeline == Pipelines.Ingest:
-        o.set_product(Products.Receive,
-            T = o.Tsnap, N = o.Nbeam * o.Nf_min,
-            Rflop = 4 * o.Npp * o.Rvis_ingest / o.Nf_min +
-                    1000 * o.Na / o.Tint_used,
-            Rout = o.Mvis * o.Npp * o.Rvis_ingest / o.Nf_min)
-        o.set_product(Products.Flag,
-            T = o.Tsnap, N = o.Nbeam * o.Nf_min,
-            Rflop = 278 * o.Npp * o.Rvis_ingest / o.Nf_min,
-            Rout = o.Mvis * o.Npp * o.Rvis_ingest / o.Nf_min)
-        o.set_product(Products.Demix,
-            T = o.Tsnap, N = o.Nbeam * o.Nf_min,
-            Rflop = o.Rvis_ingest *
-                      (154 * o.NAteam + 84 +
-                       (o.NAteam**2 + o.NAteam * (33 + 24 * o.Nsolve) + 64)
-                       / (o.Tion / o.Tint_used) / (o.Nf_max / o.Nf_min)),
-            Rout = o.Mvis * o.Npp * o.Rvis_ingest / o.Nf_min)
-        o.set_product(Products.Average,
-            T = o.Tsnap, N = o.Nbeam * o.Nf_min,
+        o.set_product(
+            Products.Receive,
+            T=o.Tsnap,
+            N=o.Nbeam * o.Nf_min,
+            Rflop=4 * o.Npp * o.Rvis_ingest / o.Nf_min
+            + 1000 * o.Na / o.Tint_used,
+            Rout=o.Mvis * o.Npp * o.Rvis_ingest / o.Nf_min,
+        )
+        o.set_product(
+            Products.Flag,
+            T=o.Tsnap,
+            N=o.Nbeam * o.Nf_min,
+            Rflop=278 * o.Npp * o.Rvis_ingest / o.Nf_min,
+            Rout=o.Mvis * o.Npp * o.Rvis_ingest / o.Nf_min,
+        )
+        o.set_product(
+            Products.Demix,
+            T=o.Tsnap,
+            N=o.Nbeam * o.Nf_min,
+            Rflop=o.Rvis_ingest
+            * (
+                154 * o.NAteam
+                + 84
+                + (o.NAteam**2 + o.NAteam * (33 + 24 * o.Nsolve) + 64)
+                / (o.Tion / o.Tint_used)
+                / (o.Nf_max / o.Nf_min)
+            ),
+            Rout=o.Mvis * o.Npp * o.Rvis_ingest / o.Nf_min,
+        )
+        o.set_product(
+            Products.Average,
+            T=o.Tsnap,
+            N=o.Nbeam * o.Nf_min,
             # Slight overestimation, as Rvis_ingest includes autocorrelations
-            Rflop = blsum(Symbol('b'), 8 * o.Npp * o.Rvis_ingest / o.Nf_min / o.Nbl),
-            Rout = o.Mvis * o.Npp * o.Rvis / o.Nf_min)
+            Rflop=blsum(
+                Symbol("b"), 8 * o.Npp * o.Rvis_ingest / o.Nf_min / o.Nbl
+            ),
+            Rout=o.Mvis * o.Npp * o.Rvis / o.Nf_min,
+        )
 
 
 def _apply_flag_equations(o):
-    """ Flagging equations for non-ingest pipelines"""
+    """Flagging equations for non-ingest pipelines"""
 
     if not (o.pipeline == Pipelines.Ingest):
-        o.set_product(Products.Flag,
-            T=o.Tsnap, N=o.Nbeam * o.Nmajortotal * o.Nf_min_gran,
+        o.set_product(
+            Products.Flag,
+            T=o.Tsnap,
+            N=o.Nbeam * o.Nmajortotal * o.Nf_min_gran,
             Rflop=279 * o.Npp * o.Rvis / o.Nf_min_gran,
-            Rout = o.Mvis * o.Npp * o.Rvis / o.Nf_min_gran)
+            Rout=o.Mvis * o.Npp * o.Rvis / o.Nf_min_gran,
+        )
 
 
 def _apply_correct_equations(o):
@@ -415,10 +524,13 @@ def _apply_correct_equations(o):
     """
 
     if not o.pipeline == Pipelines.Ingest:
-        o.set_product(Products.Correct,
-            T = o.Tsnap, N = o.Nbeam*o.Nmajortotal * o.Npp * o.Nf_min_gran,
-            Rflop = 8 * o.Nmm * o.Rvis * o.NIpatches / o.Nf_min_gran,
-            Rout = o.Mvis * o.Rvis / o.Nf_min_gran)
+        o.set_product(
+            Products.Correct,
+            T=o.Tsnap,
+            N=o.Nbeam * o.Nmajortotal * o.Npp * o.Nf_min_gran,
+            Rflop=8 * o.Nmm * o.Rvis * o.NIpatches / o.Nf_min_gran,
+            Rout=o.Mvis * o.Rvis / o.Nf_min_gran,
+        )
 
 
 def _apply_grid_equations(o):
@@ -430,20 +542,28 @@ def _apply_grid_equations(o):
 
     # For the ASKAP MSMFS, we grid all data for each taylor term
     # with polynominal of delta freq/freq
-    b = Symbol('b')
+    b = Symbol("b")
     o.Ntt_backward = 1
     o.Ntt_predict = 1
     if o.pipeline == Pipelines.DPrepA:
         o.Ntt_backward = o.Ntt
         o.Ntt_predict = o.Ntt
 
-    if not o.pipeline in Pipelines.imaging: return
+    if not o.pipeline in Pipelines.imaging:
+        return
 
-    o.set_product(Products.Visibility_Weighting, T=o.Tsnap,
-        N = BLDep(b, o.Nmajortotal * o.Nbeam * o.Npp *
-                     o.Nfacet**2 * o.Nf_min_gran),
-        Rflop = blsum(b, 2 * 8 * o.Nf_vis_backward(b) / o.Nf_min_gran / o.Tcoal_backward(b)),
-        Rout = blsum(b, o.Mvis / o.Tcoal_backward(b)))
+    o.set_product(
+        Products.Visibility_Weighting,
+        T=o.Tsnap,
+        N=BLDep(
+            b, o.Nmajortotal * o.Nbeam * o.Npp * o.Nfacet**2 * o.Nf_min_gran
+        ),
+        Rflop=blsum(
+            b,
+            2 * 8 * o.Nf_vis_backward(b) / o.Nf_min_gran / o.Tcoal_backward(b),
+        ),
+        Rout=blsum(b, o.Mvis / o.Tcoal_backward(b)),
+    )
 
     # Assume 8 flops per default. For image-domain gridding we
     # need 6 flops additionally.
@@ -451,16 +571,45 @@ def _apply_grid_equations(o):
     if not isinstance(o.image_gridding, Symbol) and o.image_gridding > 0:
         Rflop_per_vis = 8 + 6
 
-    o.set_product(Products.Grid, T=o.Tsnap,
-        N = BLDep(b, o.Nmajortotal * o.Nbeam * o.Npp * o.Ntt_backward *
-                     o.Nfacet**2 * o.Nf_vis_backward(b)),
-        Rflop = blsum(b, Rflop_per_vis * o.Nmm * o.Nkernel2_backward(b) / o.Tcoal_backward(b)),
-        Rout = o.Mcpx * o.Npix_linear * (o.Npix_linear / 2 + 1) / o.Tsnap)
-    o.set_product(Products.Degrid, T = o.Tsnap,
-        N = BLDep(b, o.Nmajortotal * o.Nbeam * o.Npp * o.Ntt_predict *
-                     o.Nfacet_predict**2 * o.Nf_vis_predict(b)),
-        Rflop = blsum(b, Rflop_per_vis * o.Nmm * o.Nkernel2_predict(b) / o.Tcoal_predict(b)),
-        Rout = blsum(b, o.Mvis / o.Tcoal_predict(b)))
+    o.set_product(
+        Products.Grid,
+        T=o.Tsnap,
+        N=BLDep(
+            b,
+            o.Nmajortotal
+            * o.Nbeam
+            * o.Npp
+            * o.Ntt_backward
+            * o.Nfacet**2
+            * o.Nf_vis_backward(b),
+        ),
+        Rflop=blsum(
+            b,
+            Rflop_per_vis
+            * o.Nmm
+            * o.Nkernel2_backward(b)
+            / o.Tcoal_backward(b),
+        ),
+        Rout=o.Mcpx * o.Npix_linear * (o.Npix_linear / 2 + 1) / o.Tsnap,
+    )
+    o.set_product(
+        Products.Degrid,
+        T=o.Tsnap,
+        N=BLDep(
+            b,
+            o.Nmajortotal
+            * o.Nbeam
+            * o.Npp
+            * o.Ntt_predict
+            * o.Nfacet_predict**2
+            * o.Nf_vis_predict(b),
+        ),
+        Rflop=blsum(
+            b,
+            Rflop_per_vis * o.Nmm * o.Nkernel2_predict(b) / o.Tcoal_predict(b),
+        ),
+        Rout=blsum(b, o.Mvis / o.Tcoal_predict(b)),
+    )
 
 
 def _apply_fft_equations(o):
@@ -470,21 +619,43 @@ def _apply_fft_equations(o):
     References: SKA-TEL-SDP-0000040 01D section 3.6.13 - FFT and iFFT
     """
 
-    if not o.pipeline in Pipelines.imaging: return
+    if not o.pipeline in Pipelines.imaging:
+        return
 
     # Determine number of w-stacks we need
     o.Nwstack = Max(1, o.DeltaW_max(o.Bmax) / o.DeltaW_stack)
     o.Nwstack_predict = Max(1, o.DeltaW_max(o.Bmax) / o.DeltaW_stack)
 
     # These are real-to-complex for which the prefactor in the FFT is 2.5
-    o.set_product(Products.FFT, T = o.Tsnap,
-        N = o.Nmajortotal * o.Nbeam * o.Npp * o.Nf_FFT_backward * o.Nfacet**2,
-        Rflop = 2.5 * o.Nwstack * o.Npix_linear ** 2 * log(o.Npix_linear**2, 2) / o.Tsnap,
-        Rout = o.Mpx * o.Npix_linear**2 / o.Tsnap)
-    o.set_product(Products.IFFT, T = o.Tsnap,
-        N = o.Nmajortotal * o.Nbeam * o.Npp * o.Nf_FFT_predict * o.Nfacet_predict**2,
-        Rflop = 2.5 * o.Nwstack_predict * o.Npix_linear_predict**2 * log(o.Npix_linear_predict**2, 2) / o.Tsnap,
-        Rout = o.Mcpx * o.Npix_linear_predict * (o.Npix_linear_predict / 2 + 1) / o.Tsnap)
+    o.set_product(
+        Products.FFT,
+        T=o.Tsnap,
+        N=o.Nmajortotal * o.Nbeam * o.Npp * o.Nf_FFT_backward * o.Nfacet**2,
+        Rflop=2.5
+        * o.Nwstack
+        * o.Npix_linear**2
+        * log(o.Npix_linear**2, 2)
+        / o.Tsnap,
+        Rout=o.Mpx * o.Npix_linear**2 / o.Tsnap,
+    )
+    o.set_product(
+        Products.IFFT,
+        T=o.Tsnap,
+        N=o.Nmajortotal
+        * o.Nbeam
+        * o.Npp
+        * o.Nf_FFT_predict
+        * o.Nfacet_predict**2,
+        Rflop=2.5
+        * o.Nwstack_predict
+        * o.Npix_linear_predict**2
+        * log(o.Npix_linear_predict**2, 2)
+        / o.Tsnap,
+        Rout=o.Mcpx
+        * o.Npix_linear_predict
+        * (o.Npix_linear_predict / 2 + 1)
+        / o.Tsnap,
+    )
 
 
 def _apply_reprojection_equations(o):
@@ -495,16 +666,28 @@ def _apply_reprojection_equations(o):
     """
 
     if o.pipeline in Pipelines.imaging and o.pipeline != Pipelines.FastImg:
-        o.set_product(Products.Reprojection,
-            T = o.Tsnap,
-            N = o.Nmajortotal * o.Nbeam * o.Npp * o.Nf_proj_backward * o.Nfacet**2,
-            Rflop = 50. * o.Npix_linear ** 2 / o.Tsnap,
-            Rout = o.Mpx * o.Npix_linear**2 / o.Tsnap)
-        o.set_product(Products.ReprojectionPredict,
-            T = o.Tsnap,
-            N = o.Nmajortotal * o.Nbeam * o.Npp * o.Nf_proj_predict * o.Nfacet**2,
-            Rflop = 50. * o.Npix_linear ** 2 / o.Tsnap,
-            Rout = o.Mpx * o.Npix_linear**2 / o.Tsnap)
+        o.set_product(
+            Products.Reprojection,
+            T=o.Tsnap,
+            N=o.Nmajortotal
+            * o.Nbeam
+            * o.Npp
+            * o.Nf_proj_backward
+            * o.Nfacet**2,
+            Rflop=50.0 * o.Npix_linear**2 / o.Tsnap,
+            Rout=o.Mpx * o.Npix_linear**2 / o.Tsnap,
+        )
+        o.set_product(
+            Products.ReprojectionPredict,
+            T=o.Tsnap,
+            N=o.Nmajortotal
+            * o.Nbeam
+            * o.Npp
+            * o.Nf_proj_predict
+            * o.Nfacet**2,
+            Rflop=50.0 * o.Npix_linear**2 / o.Tsnap,
+            Rout=o.Mpx * o.Npix_linear**2 / o.Tsnap,
+        )
 
 
 def _apply_spectral_fitting_equations(o):
@@ -515,12 +698,16 @@ def _apply_spectral_fitting_equations(o):
     """
 
     if o.pipeline == Pipelines.DPrepA_Image:
-        o.set_product(Products.Image_Spectral_Fitting,
-            T = o.Tobs,
-            N = o.Nmajortotal * o.Nbeam * o.Npp * o.Ntt,
-            Rflop = 2.0 * (o.Nf_FFT_backward + o.Nf_FFT_predict) *
-                    o.Npix_linear_fov_total ** 2 / o.Tobs,
-            Rout = o.Mpx * o.Npix_linear_fov_total ** 2 / o.Tobs)
+        o.set_product(
+            Products.Image_Spectral_Fitting,
+            T=o.Tobs,
+            N=o.Nmajortotal * o.Nbeam * o.Npp * o.Ntt,
+            Rflop=2.0
+            * (o.Nf_FFT_backward + o.Nf_FFT_predict)
+            * o.Npix_linear_fov_total**2
+            / o.Tobs,
+            Rout=o.Mpx * o.Npix_linear_fov_total**2 / o.Tobs,
+        )
 
 
 def _apply_minor_cycle_equations(o):
@@ -533,9 +720,14 @@ def _apply_minor_cycle_equations(o):
     """
 
     o.Nf_identify = 0
-    if not o.pipeline in Pipelines.imaging: return
+    if not o.pipeline in Pipelines.imaging:
+        return
 
-    if o.pipeline in (Pipelines.ICAL, Pipelines.DPrepA, Pipelines.DPrepA_Image):
+    if o.pipeline in (
+        Pipelines.ICAL,
+        Pipelines.DPrepA,
+        Pipelines.DPrepA_Image,
+    ):
         # Search for every sub-band independently
         o.Nf_identify = o.Nsubbands
     elif o.pipeline in (Pipelines.DPrepB, Pipelines.DPrepC):
@@ -550,21 +742,41 @@ def _apply_minor_cycle_equations(o):
     # assume that this is done indepedently per facet (with or
     # without consolidation), therefore we use Npix*Nfacet
     # including overlap
-    o.set_product(Products.Identify_Component,
-        T = o.Tobs,
-        N = o.Nmajortotal * o.Nbeam * o.Nf_identify * o.Nfacet**2,
-        Rflop = 2 * (o.Npix_linear**2  + o.Nminor * o.Npatch**2) * o.Ntt * o.Nscales/ o.Tobs,
-        Rout = o.Nminor * o.Mcpx / o.Tobs)
+    o.set_product(
+        Products.Identify_Component,
+        T=o.Tobs,
+        N=o.Nmajortotal * o.Nbeam * o.Nf_identify * o.Nfacet**2,
+        Rflop=2
+        * (o.Npix_linear**2 + o.Nminor * o.Npatch**2)
+        * o.Ntt
+        * o.Nscales
+        / o.Tobs,
+        Rout=o.Nminor * o.Mcpx / o.Tobs,
+    )
 
     # Subtract on all scales, polarisations and taylor terms
-    o.set_product(Products.Subtract_Image_Component,
-        T = o.Tobs,
-        N = o.Nmajortotal * o.Nbeam * o.Nf_identify * o.Nfacet**2,
-        Rflop = 2 * o.Npp * o.Nminor * o.Ntt * o.Nscales * o.Npatch**2 / o.Nfacet**2 / o.Tobs,
-        Rout = o.Mpx * o.Ntt * o.Npix_linear**2 / o.Tobs)
+    o.set_product(
+        Products.Subtract_Image_Component,
+        T=o.Tobs,
+        N=o.Nmajortotal * o.Nbeam * o.Nf_identify * o.Nfacet**2,
+        Rflop=2
+        * o.Npp
+        * o.Nminor
+        * o.Ntt
+        * o.Nscales
+        * o.Npatch**2
+        / o.Nfacet**2
+        / o.Tobs,
+        Rout=o.Mpx * o.Ntt * o.Npix_linear**2 / o.Tobs,
+    )
 
     # Working memory requirements according to TCC-SDP-151123-2
-    o.M_MSMFS = o.Mpx * o.Nf_identify * (o.Ntt * (o.Nscales + 1) + o.Nscales) * (o.Npix_linear * o.Nfacet)**2
+    o.M_MSMFS = (
+        o.Mpx
+        * o.Nf_identify
+        * (o.Ntt * (o.Nscales + 1) + o.Nscales)
+        * (o.Npix_linear * o.Nfacet) ** 2
+    )
 
 
 def _apply_calibration_equations(o):
@@ -576,7 +788,7 @@ def _apply_calibration_equations(o):
 
     # Number of flops needed per solution interval
     o.NFlop_solver = 48 * o.Npp * o.Nsolve * o.Na**2
-    # Number of flops required for averaging one vis. The steps are evaluate the complex phasor for 
+    # Number of flops required for averaging one vis. The steps are evaluate the complex phasor for
     # the model phase (16 flops), multiply Vis by that phasor (16 flops) then average (8 flops)
     o.NFlop_averager = 40 * o.Npp
 
@@ -592,6 +804,7 @@ def _apply_calibration_equations(o):
     # Calculate number of calibration problems total / per snapshot&subband
     def calcNcal(Nf, t, Ndircal, Nfcal, Tcal):
         return Ndircal * Max(1, Nfcal / Nf) * Max(1, t / Tcal)
+
     o.Ncal_G_obs = calcNcal(1, o.Tobs, **G_cal)
     o.Ncal_B_obs = calcNcal(1, o.Tobs, **B_cal)
     o.Ncal_I_obs = calcNcal(1, o.Tobs, **I_cal)
@@ -603,24 +816,40 @@ def _apply_calibration_equations(o):
     o.Mcal_out = o.Mjones * o.Na * (o.Ncal_G_obs + o.Ncal_B_obs + o.Ncal_I_obs)
 
     # Calibration problem & solutions sizes (per solve interval)
-    o.Mcal_solve_in = 2 * o.Mvis * o.Npp * o.Nbl * (o.Ncal_G_solve + o.Ncal_B_solve + o.Ncal_I_solve)
-    o.Mcal_solve_out = o.Mjones * o.Na * (o.Ncal_G_solve + o.Ncal_B_solve + o.Ncal_I_solve)
+    o.Mcal_solve_in = (
+        2
+        * o.Mvis
+        * o.Npp
+        * o.Nbl
+        * (o.Ncal_G_solve + o.Ncal_B_solve + o.Ncal_I_solve)
+    )
+    o.Mcal_solve_out = (
+        o.Mjones * o.Na * (o.Ncal_G_solve + o.Ncal_B_solve + o.Ncal_I_solve)
+    )
 
     # How many directions do we need to solve in total? Assume we have
     # to average for each separately.
-    N_solve = G_cal['Ndircal'] + B_cal['Ndircal'] + I_cal['Ndircal']
+    N_solve = G_cal["Ndircal"] + B_cal["Ndircal"] + I_cal["Ndircal"]
     if N_solve > 0:
-
         # Averaging needs to be done for each calibration method
-        Rflop_averaging = o.NFlop_averager * N_solve * o.Rvis.eval_sum(o.baseline_bins)
-        Rflop_solving   = o.NFlop_solver * (o.Ncal_G_solve + o.Ncal_B_solve + o.Ncal_I_solve) / o.Tsolve
-        o.set_product(Products.Solve,
-            T = o.Tsolve,
+        Rflop_averaging = (
+            o.NFlop_averager * N_solve * o.Rvis.eval_sum(o.baseline_bins)
+        )
+        Rflop_solving = (
+            o.NFlop_solver
+            * (o.Ncal_G_solve + o.Ncal_B_solve + o.Ncal_I_solve)
+            / o.Tsolve
+        )
+        o.set_product(
+            Products.Solve,
+            T=o.Tsolve,
             # We do one calibration to start with (using the original
             # LSM from the GSM and then we do Nselfcal more.
-            N = (o.Nselfcal + 1) * o.Nsubbands * o.Nbeam,
-            Rflop = Rflop_solving + Rflop_averaging / o.Nsubbands,
-            Rout = o.Mcal_solve_out / o.Tsolve)
+            N=(o.Nselfcal + 1) * o.Nsubbands * o.Nbeam,
+            Rflop=Rflop_solving + Rflop_averaging / o.Nsubbands,
+            Rout=o.Mcal_solve_out / o.Tsolve,
+        )
+
 
 def _apply_dft_equations(o):
     """
@@ -635,13 +864,23 @@ def _apply_dft_equations(o):
         # once but since we do an update of the model every
         # selfcal, we need to do it every selfcal.
         b = Symbol("b")
-        o.set_product(Products.DFT,
-            T = o.Tsnap,
-            N = o.Nbeam * o.Nmajortotal * o.Nf_min_gran,
-            Rflop = blsum(b,
-                    (32 * o.Na**2 * o.Nsource + (10 + 224 + 32) * o.Na * o.Nsource + 128 * o.Na * o.Na)
-                          * o.Rvis(b) / o.Nf_min_gran / o.Nbl),
-            Rout = blsum(b, o.Npp * o.Mvis * o.Rvis(b) / o.Nf_min_gran))
+        o.set_product(
+            Products.DFT,
+            T=o.Tsnap,
+            N=o.Nbeam * o.Nmajortotal * o.Nf_min_gran,
+            Rflop=blsum(
+                b,
+                (
+                    32 * o.Na**2 * o.Nsource
+                    + (10 + 224 + 32) * o.Na * o.Nsource
+                    + 128 * o.Na * o.Na
+                )
+                * o.Rvis(b)
+                / o.Nf_min_gran
+                / o.Nbl,
+            ),
+            Rout=blsum(b, o.Npp * o.Mvis * o.Rvis(b) / o.Nf_min_gran),
+        )
 
 
 def _apply_source_find_equations(o):
@@ -655,11 +894,12 @@ def _apply_source_find_equations(o):
         # have 600 FMults . Ignore for the moment Theta_beam the
         # solution of these normal equations. This really is a
         # stopgap. We need an estimate for a non-linear solver.
-        o.set_product(Products.Source_Find,
-            T = o.Tobs,
-            N = o.Nmajortotal,
-            Rflop = 6 * 100 * o.Nsource_find_iterations * o.Nsource / o.Tobs,
-            Rout = 100 * o.Mcpx # guessed
+        o.set_product(
+            Products.Source_Find,
+            T=o.Tobs,
+            N=o.Nmajortotal,
+            Rflop=6 * 100 * o.Nsource_find_iterations * o.Nsource / o.Tobs,
+            Rout=100 * o.Mcpx,  # guessed
         )
 
 
@@ -672,12 +912,14 @@ def _apply_major_cycle_equations(o):
 
     # Note that we assume this is done for every Selfcal and Major Cycle
     if o.pipeline in Pipelines.imaging:
-        b = Symbol('b')
-        o.set_product(Products.Subtract_Visibility,
-            T = o.Tsnap,
-            N = o.Nmajortotal * o.Nbeam * o.Nf_min_gran,
-            Rflop = blsum(b, 2 * o.Npp * o.Rvis(b) / o.Nf_min_gran),
-            Rout = blsum(b, o.Mvis * o.Npp * o.Rvis(b) / o.Nf_min_gran))
+        b = Symbol("b")
+        o.set_product(
+            Products.Subtract_Visibility,
+            T=o.Tsnap,
+            N=o.Nmajortotal * o.Nbeam * o.Nf_min_gran,
+            Rflop=blsum(b, 2 * o.Npp * o.Rvis(b) / o.Nf_min_gran),
+            Rout=blsum(b, o.Mvis * o.Npp * o.Rvis(b) / o.Nf_min_gran),
+        )
 
 
 def _apply_kernel_equations(o):
@@ -689,19 +931,29 @@ def _apply_kernel_equations(o):
      * SKA-TEL-SDP-0000040 01D section E - Re-use of Convolution Kernels
     """
 
-    b = Symbol('b')
-    o.dfonF_backward = BLDep(b, o.epsilon_f_approx / (o.Qkernel * sqrt(o.Nkernel2_backward(b))))
-    o.dfonF_predict = BLDep(b, o.epsilon_f_approx / (o.Qkernel * sqrt(o.Nkernel2_predict(b))))
+    b = Symbol("b")
+    o.dfonF_backward = BLDep(
+        b, o.epsilon_f_approx / (o.Qkernel * sqrt(o.Nkernel2_backward(b)))
+    )
+    o.dfonF_predict = BLDep(
+        b, o.epsilon_f_approx / (o.Qkernel * sqrt(o.Nkernel2_predict(b)))
+    )
 
     # allow uv positional errors up to o.epsilon_f_approx *
     # 1/Qkernel of a cell from frequency smearing.(But not more
     # than Nf_max channels...)
-    o.Nf_gcf_backward_nosmear = BLDep(b,
-        Min(log(o.wl_max / o.wl_min) /
-            log(o.dfonF_backward(b) + 1.), o.Nf_max))
-    o.Nf_gcf_predict_nosmear  = BLDep(b,
-        Min(log(o.wl_max / o.wl_min) /
-            log(o.dfonF_predict(b) + 1.), o.Nf_max))
+    o.Nf_gcf_backward_nosmear = BLDep(
+        b,
+        Min(
+            log(o.wl_max / o.wl_min) / log(o.dfonF_backward(b) + 1.0), o.Nf_max
+        ),
+    )
+    o.Nf_gcf_predict_nosmear = BLDep(
+        b,
+        Min(
+            log(o.wl_max / o.wl_min) / log(o.dfonF_predict(b) + 1.0), o.Nf_max
+        ),
+    )
 
     # Number of times kernel convolution needs to be repeated to
     # generate all oversampling values used in gridding.
@@ -710,9 +962,9 @@ def _apply_kernel_equations(o):
 
     if o.on_the_fly:
         o.Nf_gcf_backward = o.Nf_vis_backward
-        o.Nf_gcf_predict  = o.Nf_vis_predict
+        o.Nf_gcf_predict = o.Nf_vis_predict
         o.Tkernel_backward = o.Tcoal_backward
-        o.Tkernel_predict  = o.Tcoal_predict
+        o.Tkernel_predict = o.Tcoal_predict
     elif not isinstance(o.image_gridding, Symbol) and o.image_gridding > 0:
         # For image-domain gridding, we multiply kernels that get
         # applied closely together by the visibilities in image
@@ -722,30 +974,91 @@ def _apply_kernel_equations(o):
         # expensive, but we need less "kernels" (which are now
         # "sub-grids"). Note that sub-grid convolution now happens
         # *after* gridding!
-        o.Nf_gcf_backward = BLDep(b, o.Theta_fov * b / o.wl_sb_min / o.image_gridding
-                                  * (1 - 1 / o.Qsubband))
-        o.Nf_gcf_predict = BLDep(b, o.Theta_fov_predict * b / o.wl_sb_min / o.image_gridding
-                                 * (1 - 1 / o.Qsubband))
-        o.Tkernel_backward = BLDep(b, Max(o.Tcoal_backward(b), Min(o.Tsnap,
-            24 * 3600 * o.image_gridding / 2 / pi / o.Theta_fov / b * o.wl_sb_min)))
-        o.Tkernel_predict = BLDep(b, Max(o.Tcoal_backward(b), Min(o.Tsnap,
-            24 * 3600 * o.image_gridding / 2 / pi / o.Theta_fov_predict / b * o.wl_sb_min)))
+        o.Nf_gcf_backward = BLDep(
+            b,
+            o.Theta_fov
+            * b
+            / o.wl_sb_min
+            / o.image_gridding
+            * (1 - 1 / o.Qsubband),
+        )
+        o.Nf_gcf_predict = BLDep(
+            b,
+            o.Theta_fov_predict
+            * b
+            / o.wl_sb_min
+            / o.image_gridding
+            * (1 - 1 / o.Qsubband),
+        )
+        o.Tkernel_backward = BLDep(
+            b,
+            Max(
+                o.Tcoal_backward(b),
+                Min(
+                    o.Tsnap,
+                    24
+                    * 3600
+                    * o.image_gridding
+                    / 2
+                    / pi
+                    / o.Theta_fov
+                    / b
+                    * o.wl_sb_min,
+                ),
+            ),
+        )
+        o.Tkernel_predict = BLDep(
+            b,
+            Max(
+                o.Tcoal_backward(b),
+                Min(
+                    o.Tsnap,
+                    24
+                    * 3600
+                    * o.image_gridding
+                    / 2
+                    / pi
+                    / o.Theta_fov_predict
+                    / b
+                    * o.wl_sb_min,
+                ),
+            ),
+        )
     else:
         # For both of the following, maintain distributability;
         # need at least Nf_min kernels.
-        o.Nf_gcf_backward = BLDep(b, Max(o.Nf_gcf_backward_nosmear(b), o.Nf_min))
-        o.Nf_gcf_predict  = BLDep(b, Max(o.Nf_gcf_predict_nosmear(b),  o.Nf_min))
+        o.Nf_gcf_backward = BLDep(
+            b, Max(o.Nf_gcf_backward_nosmear(b), o.Nf_min)
+        )
+        o.Nf_gcf_predict = BLDep(b, Max(o.Nf_gcf_predict_nosmear(b), o.Nf_min))
         o.Tkernel_backward = BLDep(b, o.Tion)
-        o.Tkernel_predict  = BLDep(b, o.Tion)
+        o.Tkernel_predict = BLDep(b, o.Tion)
 
         # Determine number of visibilities per kernel, approximate
         # number of oversampling values used.
-        o.Nvis_gcf_backward = BLDep(b,
-            o.Nf_vis_backward(b) / o.Nf_gcf_backward(b) * o.Tkernel_backward(b) / o.Tcoal_backward(b))
-        o.Nvis_gcf_predict = BLDep(b,
-            o.Nf_vis_predict(b) / o.Nf_gcf_predict(b) * o.Tkernel_predict(b) / o.Tcoal_predict(b))
-        o.Ngcf_used_backward = BLDep(b, o.Qgcf**2 * (1 - (1 - 1 / o.Qgcf**2)**o.Nvis_gcf_backward(b)))
-        o.Ngcf_used_predict = BLDep(b, o.Qgcf**2 * (1 - (1 - 1 / o.Qgcf**2)**o.Nvis_gcf_predict(b)))
+        o.Nvis_gcf_backward = BLDep(
+            b,
+            o.Nf_vis_backward(b)
+            / o.Nf_gcf_backward(b)
+            * o.Tkernel_backward(b)
+            / o.Tcoal_backward(b),
+        )
+        o.Nvis_gcf_predict = BLDep(
+            b,
+            o.Nf_vis_predict(b)
+            / o.Nf_gcf_predict(b)
+            * o.Tkernel_predict(b)
+            / o.Tcoal_predict(b),
+        )
+        o.Ngcf_used_backward = BLDep(
+            b,
+            o.Qgcf**2
+            * (1 - (1 - 1 / o.Qgcf**2) ** o.Nvis_gcf_backward(b)),
+        )
+        o.Ngcf_used_predict = BLDep(
+            b,
+            o.Qgcf**2 * (1 - (1 - 1 / o.Qgcf**2) ** o.Nvis_gcf_predict(b)),
+        )
 
 
 def _apply_kernel_product_equations(o):
@@ -756,10 +1069,15 @@ def _apply_kernel_product_equations(o):
      * SKA-TEL-SDP-0000040 01D section E - Re-use of Convolution Kernels
     """
 
-    b = Symbol('b')
+    b = Symbol("b")
 
     # Baselines to cover with kernels.
-    if o.NAProducts == 'all' or o.on_the_fly or not isinstance(o.image_gridding, Symbol) and o.image_gridding > 0:
+    if (
+        o.NAProducts == "all"
+        or o.on_the_fly
+        or not isinstance(o.image_gridding, Symbol)
+        and o.image_gridding > 0
+    ):
         bins = o.baseline_bins
 
     else:
@@ -767,23 +1085,65 @@ def _apply_kernel_product_equations(o):
         # just make the appropriate number of A-kernels at a
         # resolution appropriate for the longest baseline, and
         # assume that all other baselines can use it
-        bins = [ { 'b': o.Bmax, 'bcount': o.NAProducts } ]
+        bins = [{"b": o.Bmax, "bcount": o.NAProducts}]
 
     if o.pipeline in Pipelines.imaging:
-
         # The following two equations correspond to Eq. 35
-        o.set_product(Products.Gridding_Kernel_Update,
-            T = BLDep(b, o.Tkernel_backward(b)),
-            N = BLDep(b, o.Nmajortotal * o.Npp * o.Nbeam * o.Nf_gcf_backward(b) * o.Nfacet**2),
-            bins = bins,
-            Rflop = blsum(b, 5. * o.Nmm * o.Ngcf_used_backward(b) * o.Nkernel_AW_backward(b)**2 * log(o.Nkernel_AW_backward(b)**2, 2) / o.Tkernel_backward(b)),
-            Rout = blsum(b, 8 * o.Qgcf**3 * o.Ngw_backward(b)**3 / o.Tkernel_backward(b)))
-        o.set_product(Products.Degridding_Kernel_Update,
-            T = BLDep(b,o.Tkernel_predict(b)),
-            N = BLDep(b,o.Nmajortotal * o.Npp * o.Nbeam * o.Nf_gcf_predict(b) * o.Nfacet_predict**2),
-            bins = bins,
-            Rflop = blsum(b, 5. * o.Nmm * o.Ngcf_used_predict(b) * o.Nkernel_AW_predict(b)**2 * log(o.Nkernel_AW_predict(b)**2, 2) / o.Tkernel_predict(b)),
-            Rout = blsum(b, 8 * o.Qgcf**3 * o.Ngw_predict(b)**3 / o.Tkernel_predict(b)))
+        o.set_product(
+            Products.Gridding_Kernel_Update,
+            T=BLDep(b, o.Tkernel_backward(b)),
+            N=BLDep(
+                b,
+                o.Nmajortotal
+                * o.Npp
+                * o.Nbeam
+                * o.Nf_gcf_backward(b)
+                * o.Nfacet**2,
+            ),
+            bins=bins,
+            Rflop=blsum(
+                b,
+                5.0
+                * o.Nmm
+                * o.Ngcf_used_backward(b)
+                * o.Nkernel_AW_backward(b) ** 2
+                * log(o.Nkernel_AW_backward(b) ** 2, 2)
+                / o.Tkernel_backward(b),
+            ),
+            Rout=blsum(
+                b,
+                8
+                * o.Qgcf**3
+                * o.Ngw_backward(b) ** 3
+                / o.Tkernel_backward(b),
+            ),
+        )
+        o.set_product(
+            Products.Degridding_Kernel_Update,
+            T=BLDep(b, o.Tkernel_predict(b)),
+            N=BLDep(
+                b,
+                o.Nmajortotal
+                * o.Npp
+                * o.Nbeam
+                * o.Nf_gcf_predict(b)
+                * o.Nfacet_predict**2,
+            ),
+            bins=bins,
+            Rflop=blsum(
+                b,
+                5.0
+                * o.Nmm
+                * o.Ngcf_used_predict(b)
+                * o.Nkernel_AW_predict(b) ** 2
+                * log(o.Nkernel_AW_predict(b) ** 2, 2)
+                / o.Tkernel_predict(b),
+            ),
+            Rout=blsum(
+                b,
+                8 * o.Qgcf**3 * o.Ngw_predict(b) ** 3 / o.Tkernel_predict(b),
+            ),
+        )
 
 
 def _apply_phrot_equations(o):
@@ -793,7 +1153,8 @@ def _apply_phrot_equations(o):
     References: SKA-TEL-SDP-0000040 01D section 3.6.9 - Phase Rotation
     """
 
-    if not o.pipeline in Pipelines.imaging: return
+    if not o.pipeline in Pipelines.imaging:
+        return
 
     b = Symbol("b")
 
@@ -802,32 +1163,52 @@ def _apply_phrot_equations(o):
     # Predict phase rotation: Input from facets at predict
     # visibility rate, output at same rate.
     if o.scale_predict_by_facet:
-        o.set_product(Products.PhaseRotationPredict,
-            T = o.Tsnap,
-            N = sign(o.Nfacet - 1) * o.Nmajortotal * o.Npp * o.Nbeam * o.Nf_min_gran *
-                o.Ntt_predict * o.Nfacet**2 ,
-            Rflop = blsum(b, 28 * o.Nf_vis(b) / o.Nf_min_gran / o.Tint_used),
-            Rout = blsum(b, o.Mvis * o.Nf_vis(b) / o.Nf_min_gran / o.Tint_used))
+        o.set_product(
+            Products.PhaseRotationPredict,
+            T=o.Tsnap,
+            N=sign(o.Nfacet - 1)
+            * o.Nmajortotal
+            * o.Npp
+            * o.Nbeam
+            * o.Nf_min_gran
+            * o.Ntt_predict
+            * o.Nfacet**2,
+            Rflop=blsum(b, 28 * o.Nf_vis(b) / o.Nf_min_gran / o.Tint_used),
+            Rout=blsum(b, o.Mvis * o.Nf_vis(b) / o.Nf_min_gran / o.Tint_used),
+        )
 
     # Backward phase rotation: Input at overall visibility
     # rate, output averaged down to backward visibility rate.
-    o.set_product(Products.PhaseRotation,
-        T = o.Tsnap,
-        N = sign(o.Nfacet - 1) * o.Nmajortotal * o.Npp * o.Nbeam * o.Nfacet**2 * o.Nf_min_gran,
-        Rflop = blsum(b, 28 * o.Nf_vis(b) / o.Nf_min_gran / o.Tint_used),
-        Rout = blsum(b, o.Mvis * o.Rvis_backward(b) / o.Nf_min_gran))
+    o.set_product(
+        Products.PhaseRotation,
+        T=o.Tsnap,
+        N=sign(o.Nfacet - 1)
+        * o.Nmajortotal
+        * o.Npp
+        * o.Nbeam
+        * o.Nfacet**2
+        * o.Nf_min_gran,
+        Rflop=blsum(b, 28 * o.Nf_vis(b) / o.Nf_min_gran / o.Tint_used),
+        Rout=blsum(b, o.Mvis * o.Rvis_backward(b) / o.Nf_min_gran),
+    )
 
 
 def _apply_flop_equations(o):
     """Calculate overall flop rate"""
 
     # Sum up products
-    o.Rflop = sum(o.get_products('Rflop').values())
+    o.Rflop = sum(o.get_products("Rflop").values())
 
     # Calculate interfacet IO rate for faceting: TCC-SDP-151123-1-1 rev 1.1
-    o.Rinterfacet = \
-        2 * o.Nmajortotal * Min(3.0, 2.0 + 18.0 * o.r_facet_base) * \
-        (o.Nfacet * o.Npix_linear)**2 * o.Nf_out * 4  / o.Tobs
+    o.Rinterfacet = (
+        2
+        * o.Nmajortotal
+        * Min(3.0, 2.0 + 18.0 * o.r_facet_base)
+        * (o.Nfacet * o.Npix_linear) ** 2
+        * o.Nf_out
+        * 4
+        / o.Tobs
+    )
 
 
 def _apply_io_equations(o):
@@ -837,7 +1218,7 @@ def _apply_io_equations(o):
     References: SKA-TEL-SDP-0000040 01D section H.3 - Convolution Kernel Cache Size
     """
 
-    b = Symbol('b')
+    b = Symbol("b")
 
     # Visibility buffer size
     #
@@ -852,7 +1233,9 @@ def _apply_io_equations(o):
     # pipeline is less than the number of polarisation states
     # ingested for the project (usually all 4).
     #
-    o.Minput = o.buffer_factor * o.Nbeam * o.Npp * o.Rvis_ingest * o.Mvis * o.Tobs
+    o.Minput = (
+        o.buffer_factor * o.Nbeam * o.Npp * o.Rvis_ingest * o.Mvis * o.Tobs
+    )
 
     # Visibility read rate
     #
@@ -861,20 +1244,34 @@ def _apply_io_equations(o):
     #
     # Reduced further to once per major loop, assuming major loop is
     # implemented as suggested in SKA-TEL-SDP-0000124
-    o.Rio = o.Nbeam * o.Npp * (1 + o.Nmajortotal) * o.Rvis.eval_sum(o.baseline_bins) * o.Mvis
+    o.Rio = (
+        o.Nbeam
+        * o.Npp
+        * (1 + o.Nmajortotal)
+        * o.Rvis.eval_sum(o.baseline_bins)
+        * o.Mvis
+    )
     # o.Rio = o.Nbeam * o.Npp * (1 + o.Nmajortotal) * o.Rvis * o.Mvis * o.Nfacet ** 2
 
     # Facet visibility rate
     #
     # Visibilities that go into a single facet
-    o.Rfacet_vis = o.Nbeam * o.Npp * o.Nmajortotal * o.Rvis_backward.eval_sum(o.baseline_bins) * o.Mvis
+    o.Rfacet_vis = (
+        o.Nbeam
+        * o.Npp
+        * o.Nmajortotal
+        * o.Rvis_backward.eval_sum(o.baseline_bins)
+        * o.Mvis
+    )
 
     # Snapshot Size
     #
     # The amount of visibility data considered together for a snapshot
     # and FFT frequency band
     o.Msnap = o.Mvis * o.Rvis * o.Npp * o.Tsnap / o.Nf_FFT_backward
-    o.Msnap_predict = o.Mvis * o.Rvis_predict * o.Npp * o.Tsnap / o.Nf_FFT_predict
+    o.Msnap_predict = (
+        o.Mvis * o.Rvis_predict * o.Npp * o.Tsnap / o.Nf_FFT_predict
+    )
 
     # Image sizes
     #
@@ -888,23 +1285,42 @@ def _apply_io_equations(o):
     # Image write rate
     #
     # Basically the output rate of the FFTs
-    o.Rimage = o.Nmajortotal * o.Nbeam * o.Npp * o.Nf_FFT_backward * o.Mpx * o.Npix_linear**2 * o.Nfacet**2 / o.Tsnap
+    o.Rimage = (
+        o.Nmajortotal
+        * o.Nbeam
+        * o.Npp
+        * o.Nf_FFT_backward
+        * o.Mpx
+        * o.Npix_linear**2
+        * o.Nfacet**2
+        / o.Tsnap
+    )
 
     # Convolution kernel cache size
     #
     # TODO: re-implement this equation within a better description
     # of where kernels will be stored etc.  (allowing storage of a
     # full observation while simultaneously capturing the next)
-    o.Mw_cache = (o.Ngw_predict(o.Bmax) ** 3) * (o.Qgcf ** 3) * o.Mcpx * o.Nbeam * \
-                 o.Nsubbands * o.Nfacet ** 2
+    o.Mw_cache = (
+        (o.Ngw_predict(o.Bmax) ** 3)
+        * (o.Qgcf**3)
+        * o.Mcpx
+        * o.Nbeam
+        * o.Nsubbands
+        * o.Nfacet**2
+    )
 
     # Size of output
 
-    if o.pipeline in [Pipelines.DPrepA, Pipelines.DPrepA_Image, Pipelines.DPrepB, Pipelines.DPrepC]:
-
+    if o.pipeline in [
+        Pipelines.DPrepA,
+        Pipelines.DPrepA_Image,
+        Pipelines.DPrepB,
+        Pipelines.DPrepC,
+    ]:
         # Size of output images.
         o.Theta_fov_out = 7.66 * o.wl_sb_max * o.Qfov_out / (pi * o.Ds)
-        o.Npix_linear_out = (o.Theta_fov_out / o.Theta_pix)
+        o.Npix_linear_out = o.Theta_fov_out / o.Theta_pix
 
         if o.pipeline in [Pipelines.DPrepA, Pipelines.DPrepA_Image]:
             # Continuum image in Taylor terms, with one set per subband.
@@ -915,8 +1331,17 @@ def _apply_io_equations(o):
                 npoint = ceiling(o.Tobs / o.Tpoint)
             else:
                 npoint = 1
-            factor = 2 + 2 * (1 + o.r_facet)**2
-            o.Mout = npoint * factor * o.Nbeam * o.Nsubbands * o.Ntt * o.Npp * o.Npix_linear_out**2 * o.Mpx_out
+            factor = 2 + 2 * (1 + o.r_facet) ** 2
+            o.Mout = (
+                npoint
+                * factor
+                * o.Nbeam
+                * o.Nsubbands
+                * o.Ntt
+                * o.Npp
+                * o.Npix_linear_out**2
+                * o.Mpx_out
+            )
         else:
             # Spectral image.  npoint is number of pointings in one
             # observation.  factor accounts for all data products: 3
@@ -926,12 +1351,22 @@ def _apply_io_equations(o):
                 npoint = ceiling(o.Tobs / o.Tpoint)
             else:
                 npoint = 1
-            factor = 3 + 2 * (1 + o.r_facet)**2
-            o.Mout = npoint * factor * o.Nbeam * o.Nf_out * o.Npp * o.Npix_linear_out**2 * o.Mpx_out
+            factor = 3 + 2 * (1 + o.r_facet) ** 2
+            o.Mout = (
+                npoint
+                * factor
+                * o.Nbeam
+                * o.Nf_out
+                * o.Npp
+                * o.Npix_linear_out**2
+                * o.Mpx_out
+            )
 
     elif o.pipeline == Pipelines.DPrepD:
         # Averaged visibilities.
-        o.Mout = o.Nbeam * o.Nf_out * o.Npp * o.Nbl * o.Mvis * o.Tobs / o.Tint_out
+        o.Mout = (
+            o.Nbeam * o.Nf_out * o.Npp * o.Nbl * o.Mvis * o.Tobs / o.Tint_out
+        )
     else:
         # No output.
         o.Mout = 0.0
@@ -946,7 +1381,7 @@ def _apply_nonimaging_equations(o):
         o.Ncand = 1000
         o.Nbin = 128
         o.Tint_used = 600 / 64
-        o.Nbyte = 1 # Apparantly?
+        o.Nbyte = 1  # Apparantly?
         o.Mcand = o.Nf_out * o.Nbin * o.Tobs / o.Tint_used * o.Nbyte
         o.Mmeta = 10000
         o.Minput = o.Ntiedbeam * o.Ncand * (o.Mcand + o.Mmeta)
@@ -960,12 +1395,16 @@ def _apply_nonimaging_equations(o):
         o.Nsample = 640
         o.Tint_used = 10
         o.Nunique = 20
-        o.Nbyte = 1 # Apparantly?
+        o.Nbyte = 1  # Apparantly?
         o.Mburst = o.Nsample * o.Nf_out * o.Npp * o.Nbyte
         o.Mmeta = 10000
         o.Minput = o.Nburst * o.Ntiedbeam * (o.Mburst + o.Mmeta)
         o.Rio = o.Minput / o.Tint_used
-        o.Mout = (o.Nunique * o.Mburst + o.Ntiedbeam * o.Nburst * o.Mmeta) * o.Tobs / o.Tint_used
+        o.Mout = (
+            (o.Nunique * o.Mburst + o.Ntiedbeam * o.Nburst * o.Mmeta)
+            * o.Tobs
+            / o.Tint_used
+        )
         o.Rflop = 4 * Constants.giga
 
     elif o.pipeline == Pipelines.PST:
@@ -977,8 +1416,8 @@ def _apply_nonimaging_equations(o):
         o.Mpulsar = o.Nbin * o.Nf_out * o.Nsubint * o.Npp * o.Nbyte
         o.Minput = o.Ntiedbeam * o.Mpulsar
         o.Rio = o.Minput / o.Tobs
-        o.Mout = o.Minput # again, worst case
+        o.Mout = o.Minput  # again, worst case
         o.Rflop = 495.9 * Constants.giga / 1800
 
     else:
-        raise Exception('Unknown non-imaging pipeline: %s' % str(o.pipeline))
+        raise Exception("Unknown non-imaging pipeline: %s" % str(o.pipeline))

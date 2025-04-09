@@ -9,8 +9,9 @@ values and variables that constitute the inputs and outputs of
 computations.
 """
 
-from sympy import Symbol, Expr, Lambda, Mul, Add, Sum, Function
 import warnings
+
+from sympy import Add, Expr, Function, Lambda, Mul, Sum, Symbol
 
 
 def is_expr(e):
@@ -54,7 +55,13 @@ class ParameterContainer(object):
             s += "\n%s\t\t= %s" % (key_string, value_string)
         return s
 
-    def set_param(self, param_name, value, prevent_overwrite=True, require_overwrite=False):
+    def set_param(
+        self,
+        param_name,
+        value,
+        prevent_overwrite=True,
+        require_overwrite=False,
+    ):
         """
         Provides a method for setting a parameter. By default first checks that the value has not already been defined.
         Useful for preventing situations where values may inadvertently be overwritten.
@@ -68,22 +75,32 @@ class ParameterContainer(object):
         if prevent_overwrite:
             if require_overwrite:
                 raise AssertionError(
-                    "Cannot simultaneously require and prevent overwrite of parameter '%s'" % param_name)
+                    "Cannot simultaneously require and prevent overwrite of parameter '%s'"
+                    % param_name
+                )
 
             if hasattr(self, param_name):
-                if eval('self.%s == value' % param_name):
-                    warnings.warn('Inefficiency : reassigning parameter "%s" with same value as before.' % param_name)
+                if eval("self.%s == value" % param_name):
+                    warnings.warn(
+                        'Inefficiency : reassigning parameter "%s" with same value as before.'
+                        % param_name
+                    )
                 else:
                     try:
-                        assert eval('self.%s == None' % param_name)
+                        assert eval("self.%s == None" % param_name)
                     except AssertionError:
                         raise AssertionError(
-                            "The parameter %s has already been defined and may not be overwritten." % param_name)
+                            "The parameter %s has already been defined and may not be overwritten."
+                            % param_name
+                        )
 
         elif require_overwrite and (not hasattr(self, param_name)):
-            raise AssertionError("Parameter '%s' is undefined and therefore cannot be assigned" % param_name)
+            raise AssertionError(
+                "Parameter '%s' is undefined and therefore cannot be assigned"
+                % param_name
+            )
 
-        exec('self.%s = value' % param_name)  # Write the value
+        exec("self.%s = value" % param_name)  # Write the value
 
     def get(self, param_name, default=None, warn=True):
         """
@@ -100,18 +117,24 @@ class ParameterContainer(object):
         assert isinstance(param_name, str)
 
         # Product? Look up in product array
-        if '.' in param_name:
-            product_name, cost_name = param_name.split('.')
+        if "." in param_name:
+            product_name, cost_name = param_name.split(".")
             if not product_name in self.products:
                 if warn:
-                    warnings.warn("Product %s hasn't been defined (returning 'None')." % product_name)
+                    warnings.warn(
+                        "Product %s hasn't been defined (returning 'None')."
+                        % product_name
+                    )
                 return default
             # Not having the cost is okay
             return self.products[product_name].get(cost_name, default)
 
         # Otherwise assume it is a direct member
         if not hasattr(self, param_name):
-            warnings.warn("Parameter %s hasn't been defined (returning 'None')." % param_name)
+            warnings.warn(
+                "Parameter %s hasn't been defined (returning 'None')."
+                % param_name
+            )
             return default
         return self.__dict__[param_name]
 
@@ -122,18 +145,18 @@ class ParameterContainer(object):
         """
 
         if name.startswith("wl"):
-            return 'lambda' + name[2:]
+            return "lambda" + name[2:]
         if name.startswith("freq_"):
-            return 'f_' + name[5:]
+            return "f_" + name[5:]
         if name.startswith("Delta"):
-            return 'Delta_' + name[5:]
+            return "Delta_" + name[5:]
         if name.startswith("Theta_"):
-            return 'Theta_' + name[6:].replace('_', ',')
+            return "Theta_" + name[6:].replace("_", ",")
         if name.startswith("Omega_"):
             return name
         if name[0].isupper() or (len(name) > 1 and name[1].isupper()):
-            i0 = 2 if name[1] == '_' else 1
-            return name[0] + "_" + name[i0:].replace('_', ',')
+            i0 = 2 if name[1] == "_" else 1
+            return name[0] + "_" + name[i0:].replace("_", ",")
         return name
 
     def subs(self, substs):
@@ -150,13 +173,16 @@ class ParameterContainer(object):
 
         # Perform substitution
         for name, v in self.__dict__.items():
-            tp.__dict__[name] = (v.subs(substs_new) if is_expr(v) else v)
+            tp.__dict__[name] = v.subs(substs_new) if is_expr(v) else v
 
         # In products as well
-        tp.products = {product:
-                           {name: (v.subs(substs_new) if is_expr(v) else v)
-                            for name, v in vals.items()}
-                       for product, vals in tp.products.items()}
+        tp.products = {
+            product: {
+                name: (v.subs(substs_new) if is_expr(v) else v)
+                for name, v in vals.items()
+            }
+            for product, vals in tp.products.items()
+        }
         return tp
 
     def clear_symbolised(self):
@@ -186,25 +212,38 @@ class ParameterContainer(object):
         for name, v in self.__dict__.items():
             # Do not use isinstance, as otherwise bool will get symbolised
             if type(v) == int or isinstance(v, float) or isinstance(v, Expr):
-                sym = Symbol(self.make_symbol_name(name), real=True, positive=True)
+                sym = Symbol(
+                    self.make_symbol_name(name), real=True, positive=True
+                )
                 self.__dict__[name] = sym
             elif isinstance(v, BLDep):
-                sym = Function(self.make_symbol_name(name), real=True, positive=True)
+                sym = Function(
+                    self.make_symbol_name(name), real=True, positive=True
+                )
                 # SymPy cannot pass parameters by dictionary, so make a list instead
                 pars = [v.pars[n] for n in sorted(v.pars.keys())]
-                self.__dict__[name] = BLDep(v.pars, sym(*pars), defaults=v.defaults)
+                self.__dict__[name] = BLDep(
+                    v.pars, sym(*pars), defaults=v.defaults
+                )
 
         # For products too
         for product, rates in self.products.items():
             for rname in rates:
-                rates[rname] = Symbol(self.make_symbol_name(rname + "_" + product))
+                rates[rname] = Symbol(
+                    self.make_symbol_name(rname + "_" + product)
+                )
 
         # Replace baseline bins with symbolic expression as well (see
         # BLDep#eval_sum for what the tuple means)
-        ib = Symbol('i')
-        self.baseline_bins = (ib, 1, self.Nbl, {'b': Function('B_max')(ib), 'bcount': 1})
+        ib = Symbol("i")
+        self.baseline_bins = (
+            ib,
+            1,
+            self.Nbl,
+            {"b": Function("B_max")(ib), "bcount": 1},
+        )
 
-    def get_products(self, expression='Rflop', scale=1):
+    def get_products(self, expression="Rflop", scale=1):
         """
         TODO:What does this method do exactly? Why does it default to Rflop?
         """
@@ -232,8 +271,8 @@ class ParameterContainer(object):
         if bins is None:
             bins = self.baseline_bins
         known_sums = {}
-        if 'bcount' in bldep.pars:
-            known_sums[bldep.pars['bcount']] = self.Nbl
+        if "bcount" in bldep.pars:
+            known_sums[bldep.pars["bcount"]] = self.Nbl
         return bldep.eval_sum(bins, known_sums)
 
     def set_product(self, product, T=None, N=1, bins=None, **args):
@@ -255,10 +294,10 @@ class ParameterContainer(object):
         """
 
         # Collect properties
-        if T is None: T = self.Tobs
+        if T is None:
+            T = self.Tobs
         props = {"N": N, "T": T}
         for k, expr in args.items():
-
             # Multiply out multiplicator. If either of them is
             # baseline-dependent, this will generate a new
             # baseline-dependent term (see BLDep)
@@ -305,11 +344,15 @@ class BLDep(object):
         self.defaults = defaults
         # Collect formal parameters. We default to parameter name 'b'
         if not isinstance(pars, dict):
-            self.pars = {'b': pars}
+            self.pars = {"b": pars}
         else:
             self.pars = pars
-        non_symbols = [p for p in self.pars.values() if not isinstance(p, Symbol)]
-        assert len(non_symbols) == 0, "Formal parameters %s are not a symbol!" % non_symbols
+        non_symbols = [
+            p for p in self.pars.values() if not isinstance(p, Symbol)
+        ]
+        assert len(non_symbols) == 0, (
+            "Formal parameters %s are not a symbol!" % non_symbols
+        )
 
     def __call__(self, vals=None, **kwargs):
         """
@@ -329,12 +372,16 @@ class BLDep(object):
         if isinstance(vals, dict):
             pvals.update(vals)
         elif vals is not None:
-            pvals['b'] = vals
+            pvals["b"] = vals
         pvals.update(kwargs)
         # Check that all enough parameters were passed
-        assert set(self.pars.keys()).issubset(pvals.keys()), \
-            "Parameter %s not passed to baseline-dependent term %s! %s" % (
-                set(self.pars.keys()).difference(pvals.keys()), self.term, pvals)
+        assert set(self.pars.keys()).issubset(
+            pvals.keys()
+        ), "Parameter %s not passed to baseline-dependent term %s! %s" % (
+            set(self.pars.keys()).difference(pvals.keys()),
+            self.term,
+            pvals,
+        )
         # Do substitutions
         to_substitute = [(psym, pvals[p]) for p, psym in self.pars.items()]
         return self.term.subs(to_substitute)
@@ -408,19 +455,28 @@ class BLDep(object):
         # independent factors. Makes for smaller terms, which is good
         # both for Sympy as well as for output.
         if isinstance(expr, Mul):
+
             def independent(e):
-                return not any([s in e.free_symbols for s in self.pars.values()])
+                return not any(
+                    [s in e.free_symbols for s in self.pars.values()]
+                )
 
             indepFactors = list(filter(independent, expr.as_ordered_factors()))
             if len(indepFactors) > 0:
-                def not_indep(e): return not independent(e)
+
+                def not_indep(e):
+                    return not independent(e)
 
                 restFactors = filter(not_indep, expr.as_ordered_factors())
                 bldep = BLDep(self.pars, Mul(*restFactors))
                 return Mul(*indepFactors) * bldep.eval_sum(bins, known_sums)
 
         # Symbolic? Generate actual symbolic sum expression
-        if isinstance(bins, tuple) and len(bins) == 4 and isinstance(bins[0], Symbol):
+        if (
+            isinstance(bins, tuple)
+            and len(bins) == 4
+            and isinstance(bins[0], Symbol)
+        ):
             return Sum(self(bins[3]), (bins[0], bins[1], bins[2]))
 
         # Otherwise generate sum term manually that approximates the
@@ -443,8 +499,8 @@ def blsum(b, expr):
        expr = blsum(b, ...)
        expr2 = blsum(b, expr(b) * ...)
     """
-    bcount = Symbol('bcount')
-    pars = {'b': b} if isinstance(b, Symbol) else dict(b)
-    pars['bcount'] = bcount
-    defaults = {'bcount': 1}
-    return BLDep(pars, bcount * expr, defaults={'bcount': 1})
+    bcount = Symbol("bcount")
+    pars = {"b": b} if isinstance(b, Symbol) else dict(b)
+    pars["bcount"] = bcount
+    defaults = {"bcount": 1}
+    return BLDep(pars, bcount * expr, defaults={"bcount": 1})

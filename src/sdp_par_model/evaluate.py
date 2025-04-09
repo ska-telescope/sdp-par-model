@@ -2,19 +2,33 @@
 parametric model.
 """
 
-from __future__ import print_function  # Makes Python-3 style print() function available in Python 2.x
+from __future__ import (
+    print_function,  # Makes Python-3 style print() function available in Python 2.x
+)
 
+import itertools
+import math
+import traceback
 import warnings
 
 import numpy as np
 from scipy import optimize as opt
-from sympy import simplify, lambdify, Max, Lambda, FiniteSet, Function, Expr, Symbol
-import math
-import traceback
-import itertools
+from sympy import (
+    Expr,
+    FiniteSet,
+    Function,
+    Lambda,
+    Max,
+    Symbol,
+    lambdify,
+    simplify,
+)
 
-from .parameters.definitions import Telescopes, Pipelines, Bands, Constants as c
-from .parameters.container import ParameterContainer, BLDep
+from .parameters.container import BLDep, ParameterContainer
+from .parameters.definitions import Bands
+from .parameters.definitions import Constants as c
+from .parameters.definitions import Pipelines, Telescopes
+
 
 def is_literal(expression):
     """
@@ -44,15 +58,13 @@ def evaluate_expression(expression, tp):
 
     # Dictionary? Recurse
     if isinstance(expression, dict):
-        return { k: evaluate_expression(e, tp)
-                 for k, e in expression.items() }
+        return {k: evaluate_expression(e, tp) for k, e in expression.items()}
 
     # Otherwise try to evaluate using sympy
     try:
-
         # Baseline dependent?
         if isinstance(expression, BLDep):
-            return [ float(expression(**subs)) for subs in tp.baseline_bins ]
+            return [float(expression(**subs)) for subs in tp.baseline_bins]
         else:
             # Otherwise just evaluate directly
             return float(expression)
@@ -62,26 +74,36 @@ def evaluate_expression(expression, tp):
         warnings.warn("Failed to evaluate (%s): %s" % (e, str(expression)))
         return None
 
-def optimize_lambdified_expr(lam, bound_lower, bound_upper):
 
+def optimize_lambdified_expr(lam, bound_lower, bound_upper):
     # Lower bound cannot be higher than the uppper bound.
     if bound_lower < bound_upper:
-        result = opt.minimize_scalar(lam, bounds=(float(bound_lower), float(bound_upper)), method='bounded')
+        result = opt.minimize_scalar(
+            lam,
+            bounds=(float(bound_lower), float(bound_upper)),
+            method="bounded",
+        )
         if not result.success:
-            warnings.warn('WARNING! : Was unable to optimize free variable. Using a value of: %f' % result.x)
+            warnings.warn(
+                "WARNING! : Was unable to optimize free variable. Using a value of: %f"
+                % result.x
+            )
         # else:
         #     print ('Optimized free variable = %f' % result.x)
         #     pass
         return result.x
     elif bound_lower > bound_upper:
-        warnings.warn('Unable to optimize free variable as upper bound %g is lower than lower bound %g.'
-                      'Adhering to lower bound.' % (bound_upper, bound_lower))
+        warnings.warn(
+            "Unable to optimize free variable as upper bound %g is lower than lower bound %g."
+            "Adhering to lower bound." % (bound_upper, bound_lower)
+        )
 
         return bound_lower
     elif bound_lower == bound_upper:
         return bound_lower
     else:
         raise Exception("Computer says no.")  # This should be impossible
+
 
 def cheap_lambdify_curry(free_vars, expression):
     """
@@ -103,41 +125,48 @@ def cheap_lambdify_curry(free_vars, expression):
     # Do "quick & dirty" translation. This map might need updating
     # when new functions get used in equations.py
     module = {
-        'Max': 'max',
-        'Min': 'min',
-        'ln': 'math.log',
-        'log': 'math.log',
-        'sqrt': 'math.sqrt',
-        'sign': 'np.sign', # No sign in math, apparently
-        'Abs': 'abs',
-        'sin': 'math.sin',
-        'cos': 'math.cos',
-        'acos': 'math.acos',
-        'acosh': 'math.acosh',
-        'arg': 'np.angle',
-        'asin': 'math.asin',
-        'asinh': 'math.asinh',
-        'atan': 'math.atan',
-        'atan2': 'math.atan2',
-        'atanh': 'math.atanh',
-        'ceiling': 'math.ceil',
-        'floor': 'math.floor'
+        "Max": "max",
+        "Min": "min",
+        "ln": "math.log",
+        "log": "math.log",
+        "sqrt": "math.sqrt",
+        "sign": "np.sign",  # No sign in math, apparently
+        "Abs": "abs",
+        "sin": "math.sin",
+        "cos": "math.cos",
+        "acos": "math.acos",
+        "acosh": "math.acosh",
+        "arg": "np.angle",
+        "asin": "math.asin",
+        "asinh": "math.asinh",
+        "atan": "math.atan",
+        "atan2": "math.atan2",
+        "atanh": "math.atanh",
+        "ceiling": "math.ceil",
+        "floor": "math.floor",
     }
     expr_body = str(expression)
-    for (sympy_name, numpy_name) in module.items():
-        expr_body = expr_body.replace(sympy_name + '(', numpy_name + '(')
+    for sympy_name, numpy_name in module.items():
+        expr_body = expr_body.replace(sympy_name + "(", numpy_name + "(")
 
     # Create head of lambda expression
-    expr_head = ''
+    expr_head = ""
     for free_var in free_vars:
-        expr_head += 'lambda ' + str(free_var) + ':'
+        expr_head += "lambda " + str(free_var) + ":"
 
     # Evaluate in order to build lambda
     return eval(expr_head + expr_body)
 
 
-def minimise_parameters(telescope_parameters, expression_string = 'Rflop', expression = None,
-                        lower_bound = {}, upper_bound = {}, only_one_minimum = ['Nfacet'], verbose = False):
+def minimise_parameters(
+    telescope_parameters,
+    expression_string="Rflop",
+    expression=None,
+    lower_bound={},
+    upper_bound={},
+    only_one_minimum=["Nfacet"],
+    verbose=False,
+):
     """Computes the optimal value for free variables in telescope parameters
     such  that it minimizes the value of an expression (typically
     Rflop). Returns result as a dictionary.
@@ -160,44 +189,60 @@ def minimise_parameters(telescope_parameters, expression_string = 'Rflop', expre
     # Find symbols to optimise
     if expression is None:
         expression = telescope_parameters.get(expression_string)
-        assert expression is not None, "Telescope parameters do not define %s!" % expression_string
+        assert expression is not None, (
+            "Telescope parameters do not define %s!" % expression_string
+        )
     else:
         expression_string = str(expression)
     free_symbols = expression.free_symbols
-    free_symbol_names = [ str(sym) for sym in free_symbols ]
+    free_symbol_names = [str(sym) for sym in free_symbols]
 
     # Default bounds
     lower_bound = dict(lower_bound)
     upper_bound = dict(upper_bound)
-    if 'Nfacet' in free_symbol_names:
-        if 'Nfacet' not in lower_bound: lower_bound['Nfacet'] = 1
-        if 'Nfacet' not in upper_bound: upper_bound['Nfacet'] = 20
-    if 'Tsnap' in free_symbol_names:
-        if 'Tsnap' not in lower_bound:
-            lower_bound['Tsnap'] = telescope_parameters.get('Tsnap_min', 0.1, warn=False)
-        if 'Tsnap' not in upper_bound:
-            upper_bound['Tsnap'] = max(telescope_parameters.get('Tsnap_min', 0.1, warn=False),
-                                       0.5 * telescope_parameters.get('Tobs', 21600, warn=False))
-    if 'DeltaW_stack' in free_symbol_names:
-        if 'DeltaW_stack' not in lower_bound:
-            lower_bound['DeltaW_stack'] = 0.1
-        if 'DeltaW_stack' not in upper_bound:
-            upper_bound['DeltaW_stack'] = telescope_parameters.DeltaW_max(telescope_parameters.Bmax)
+    if "Nfacet" in free_symbol_names:
+        if "Nfacet" not in lower_bound:
+            lower_bound["Nfacet"] = 1
+        if "Nfacet" not in upper_bound:
+            upper_bound["Nfacet"] = 20
+    if "Tsnap" in free_symbol_names:
+        if "Tsnap" not in lower_bound:
+            lower_bound["Tsnap"] = telescope_parameters.get(
+                "Tsnap_min", 0.1, warn=False
+            )
+        if "Tsnap" not in upper_bound:
+            upper_bound["Tsnap"] = max(
+                telescope_parameters.get("Tsnap_min", 0.1, warn=False),
+                0.5 * telescope_parameters.get("Tobs", 21600, warn=False),
+            )
+    if "DeltaW_stack" in free_symbol_names:
+        if "DeltaW_stack" not in lower_bound:
+            lower_bound["DeltaW_stack"] = 0.1
+        if "DeltaW_stack" not in upper_bound:
+            upper_bound["DeltaW_stack"] = telescope_parameters.DeltaW_max(
+                telescope_parameters.Bmax
+            )
 
     # We can only optimise one floating-point variable, and every symbol must have bounds
     float_symbol = None
     int_symbols = []
     int_ranges = []
     for sym in free_symbols:
-        assert str(sym) in lower_bound, "Symbol %s must have a lower bound!" % sym
-        assert str(sym) in upper_bound, "Symbol %s must have an upper bound!" % sym
+        assert str(sym) in lower_bound, (
+            "Symbol %s must have a lower bound!" % sym
+        )
+        assert str(sym) in upper_bound, (
+            "Symbol %s must have an upper bound!" % sym
+        )
         if not sym.is_integer:
-            assert float_symbol is None, "Can only optimise for one float symbol at a time!"
+            assert (
+                float_symbol is None
+            ), "Can only optimise for one float symbol at a time!"
             float_symbol = sym
             float_lower_bound = lower_bound[str(float_symbol)]
             float_upper_bound = upper_bound[str(float_symbol)]
         else:
-            rnge = range(lower_bound[str(sym)], upper_bound[str(sym)]+1)
+            rnge = range(lower_bound[str(sym)], upper_bound[str(sym)] + 1)
             # Sort symbols with only one minimum to the back to the list
             if str(sym) in only_one_minimum:
                 int_symbols.append(sym)
@@ -221,11 +266,15 @@ def minimise_parameters(telescope_parameters, expression_string = 'Rflop', expre
         if int_vals < skip_until:
             continue
         if verbose:
-            print('Evaluating', ', '.join(["%s=%d" % vi for vi in zip(int_symbols, int_vals)]), end='')
+            print(
+                "Evaluating",
+                ", ".join(["%s=%d" % vi for vi in zip(int_symbols, int_vals)]),
+                end="",
+            )
 
         # Set integer symbols
         expr = expression_lam
-        #TODO Peter: what does the forloop below accomplish?
+        # TODO Peter: what does the forloop below accomplish?
         for i in int_vals:
             expr = expr(i)
 
@@ -234,12 +283,17 @@ def minimise_parameters(telescope_parameters, expression_string = 'Rflop', expre
             opt_val = 0
             result = float(expr)
             if verbose:
-                print(' -> %s = %g' % (expression_string, result))
+                print(" -> %s = %g" % (expression_string, result))
         else:
-            opt_val = optimize_lambdified_expr(expr, float_lower_bound, float_upper_bound)
+            opt_val = optimize_lambdified_expr(
+                expr, float_lower_bound, float_upper_bound
+            )
             result = float(expr(opt_val))
             if verbose:
-                print(' -> %s=%g, %s=%g' % (float_symbol, opt_val, expression_string, result))
+                print(
+                    " -> %s=%g, %s=%g"
+                    % (float_symbol, opt_val, expression_string, result)
+                )
 
         results.append((result,) + int_vals + (opt_val,))
 
@@ -249,7 +303,6 @@ def minimise_parameters(telescope_parameters, expression_string = 'Rflop', expre
         elif last_result >= result:
             result_got_worse = 0
         elif str(int_symbols[-1]) in only_one_minimum:
-
             # Allow this a few times before we actually stop
             result_got_worse += 1
             if result_got_worse >= 2:
@@ -262,11 +315,14 @@ def minimise_parameters(telescope_parameters, expression_string = 'Rflop', expre
         last_result = result
 
     # Return parameters with lowest value
-    result, *vals = results[np.argmin(np.array(results)[:,0])]
+    result, *vals = results[np.argmin(np.array(results)[:, 0])]
     if verbose:
-        print(', '.join(["%s=%g" % vi for vi in zip(params, vals)]),
-              ' yielded the lowest value of %s=%g' % (expression_string, result))
-    return dict(zip([str(p) for p in params],vals))
+        print(
+            ", ".join(["%s=%g" % vi for vi in zip(params, vals)]),
+            " yielded the lowest value of %s=%g" % (expression_string, result),
+        )
+    return dict(zip([str(p) for p in params], vals))
+
 
 def evaluate_expressions(expressions, tp):
     """
@@ -275,7 +331,8 @@ def evaluate_expressions(expressions, tp):
     :param expressions: An array of expressions to be evaluated
     :param tp: The set of telescope parameters that should be used to evaluate each expression
     """
-    return [ evaluate_expression(expr, tp) for expr in expressions ]
+    return [evaluate_expression(expr, tp) for expr in expressions]
+
 
 def collect_free_symbols(formulas):
     """
@@ -293,4 +350,5 @@ def collect_free_symbols(formulas):
         functions = set(map(lambda f: str(f.func), expr.atoms(Function)))
         frees = set(map(lambda s: str(s), expr.free_symbols))
         return set(frees).union(functions)
+
     return set().union(*list(map(free_f, formulas)))

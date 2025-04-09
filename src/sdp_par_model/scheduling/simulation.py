@@ -1,21 +1,28 @@
 """Functions for calculating and displaying SDP schedule simulations."""
-from sdp_par_model.parameters.definitions import Telescopes, Constants, HPSOs, Pipelines
-from sdp_par_model.scheduling import graph, scheduler, efficiency
-from sdp_par_model.config import PipelineConfig
-from sdp_par_model import reports
-
-import multiprocessing
-from matplotlib import pylab
-from IPython.display import display, Markdown
-from ipywidgets import interact_manual, SelectMultiple
 import math
+import multiprocessing
 import random
-import time
 import sys
+import time
+
+from IPython.display import Markdown, display
+from ipywidgets import SelectMultiple, interact_manual
+from matplotlib import pylab
+
+from sdp_par_model import reports
+from sdp_par_model.config import PipelineConfig
+from sdp_par_model.parameters.definitions import (
+    Constants,
+    HPSOs,
+    Pipelines,
+    Telescopes,
+)
+from sdp_par_model.scheduling import efficiency, graph, scheduler
 
 
 class ScheduleSimulation:
     """Class for simulating the schedule within a Jupyter notebook."""
+
     def __init__(self):
         pass
 
@@ -30,21 +37,29 @@ class ScheduleSimulation:
 
         # Common system sizing
         self.ingest_rate = 0.46 * Constants.tera  # Byte/s
-        self.delivery_rate = self.lts_rate = int(100 / 8 * Constants.giga)  # Byte/s
+        self.delivery_rate = self.lts_rate = int(
+            100 / 8 * Constants.giga
+        )  # Byte/s
 
         # Costing scenarios to assume
         if scenario == "low-cdr":
             self.telescope = Telescopes.SKA1_Low
             self.total_flops = int(13.8 * Constants.peta)  # FLOP/s
-            self.input_buffer_size = int((0.5 * 46.0 - 0.6) * Constants.peta)  # Byte
+            self.input_buffer_size = int(
+                (0.5 * 46.0 - 0.6) * Constants.peta
+            )  # Byte
             self.hot_buffer_size = int(0.5 * 46.0 * Constants.peta)  # Byte
             self.delivery_buffer_size = int(0.656 * Constants.peta)  # Byte
         elif scenario == "mid-cdr":
             self.telescope = Telescopes.SKA1_Mid
             self.total_flops = int(12.1 * Constants.peta)  # FLOP/s
-            self.input_buffer_size = int((0.5 * 39.0 - 1.103) * Constants.peta)  # Byte
+            self.input_buffer_size = int(
+                (0.5 * 39.0 - 1.103) * Constants.peta
+            )  # Byte
             self.hot_buffer_size = int(0.5 * 39.0 * Constants.peta)  # Byte
-            self.delivery_buffer_size = int(0.03 * 39.0 * Constants.peta)  # Byte
+            self.delivery_buffer_size = int(
+                0.03 * 39.0 * Constants.peta
+            )  # Byte
         elif scenario == "low-adjusted":
             self.telescope = Telescopes.SKA1_Low
             self.total_flops = int(9.623 * Constants.peta)  # FLOP/s
@@ -81,15 +96,21 @@ class ScheduleSimulation:
                         + self.delivery_buffer_size
                     )
                     / Constants.peta,
-                    self.input_buffer_size * self.cold_rate_per_size / Constants.tera,
-                    self.hot_buffer_size * self.hot_rate_per_size / Constants.tera,
+                    self.input_buffer_size
+                    * self.cold_rate_per_size
+                    / Constants.tera,
+                    self.hot_buffer_size
+                    * self.hot_rate_per_size
+                    / Constants.tera,
                     self.delivery_buffer_size
                     * self.cold_rate_per_size
                     / Constants.tera,
                     (self.input_buffer_size + self.delivery_buffer_size)
                     * self.cold_rate_per_size
                     / Constants.tera
-                    + self.hot_buffer_size * self.hot_rate_per_size / Constants.tera,
+                    + self.hot_buffer_size
+                    * self.hot_rate_per_size
+                    / Constants.tera,
                 )
             )
         )
@@ -101,48 +122,60 @@ class ScheduleSimulation:
             self.csv = reports.strip_csv(reports.read_csv(csv_file))
         else:
             self.use_hpso = False
-            self.csv = reports.strip_csv(reports.read_csv(csv_file), ignore_modifiers=False)
-            
-    
+            self.csv = reports.strip_csv(
+                reports.read_csv(csv_file), ignore_modifiers=False
+            )
+
     def computational_capacity(self):
         realtime_flops = 0
         realtime_flops_hpso = None
-        
+
         # Containers to store the pipelines in an observation
         # and an observation indentifier.
         # if use_hpso, observation identifier is the csv column name
         # else it is a column index
         self.pipelines_in_observations = []
         self.pipeline_identifiers = []
-        
+
         if self.use_hpso:
             self.observations = []
             for hpso in HPSOs.all_hpsos:
                 if HPSOs.hpso_telescopes[hpso] != self.telescope:
                     continue
-                
-                
+
                 self.observations.append(hpso)
                 config_names = []
                 pipelines = []
                 for pipeline in HPSOs.hpso_pipelines[hpso]:
                     pipelines.append(pipeline)
-                    config_names.append(PipelineConfig(hpso=hpso, pipeline=pipeline).describe())
-                    
+                    config_names.append(
+                        PipelineConfig(hpso=hpso, pipeline=pipeline).describe()
+                    )
+
                 self.pipelines_in_observations.append(pipelines)
                 self.pipeline_identifiers.append(config_names)
-            
+
         else:
-            self.observations = reports.lookup_csv_observation_names(self.csv, self.telescope)
+            self.observations = reports.lookup_csv_observation_names(
+                self.csv, self.telescope
+            )
             self.pipelines_in_observations = []
             self.pipeline_identifiers = []
             for observation in self.observations:
-                pipelines, column_indices = reports.lookup_observation_pipelines_csv(self.csv, observation)
+                (
+                    pipelines,
+                    column_indices,
+                ) = reports.lookup_observation_pipelines_csv(
+                    self.csv, observation
+                )
                 self.pipelines_in_observations.append(pipelines)
                 self.pipeline_identifiers.append(column_indices)
-                
-        
-        for observation, pipelines, identifiers in zip(self.observations, self.pipelines_in_observations, self.pipeline_identifiers):
+
+        for observation, pipelines, identifiers in zip(
+            self.observations,
+            self.pipelines_in_observations,
+            self.pipeline_identifiers,
+        ):
             # Sum FLOP rates over involved real-time pipelines
             rt_flops = 0
             for pipeline, identifier in zip(pipelines, identifiers):
@@ -152,25 +185,31 @@ class ScheduleSimulation:
                         math.ceil(
                             float(
                                 reports.lookup_csv(
-                                    self.csv, identifier, "Total Compute Requirement"
+                                    self.csv,
+                                    identifier,
+                                    "Total Compute Requirement",
                                 )
                             )
                             * Constants.peta
                         )
                     )
-                
+
                 else:
-                    # Inefficiency: Does look up every iteration. 
+                    # Inefficiency: Does look up every iteration.
                     # All CSVs are currently small enough for this to be unimportant
                     flops = int(
                         math.ceil(
                             float(
-                                [*self.csv.get("total compute requirement").values()][identifier]
+                                [
+                                    *self.csv.get(
+                                        "total compute requirement"
+                                    ).values()
+                                ][identifier]
                             )
                             * Constants.peta
                         )
                     )
-                    
+
                 if pipeline in Pipelines.realtime:
                     rt_flops += flops
             # Dominates?
@@ -207,18 +246,31 @@ class ScheduleSimulation:
             graph.Resources.LTSRate: self.lts_rate,
         }
 
-
-    def generate_graph(self, Tsequence, Tobs_min, batch_parallelism, display_node_info):
+    def generate_graph(
+        self, Tsequence, Tobs_min, batch_parallelism, display_node_info
+    ):
         self.Tobs_min = Tobs_min
         self.batch_parallelism = batch_parallelism
 
         if self.use_hpso:
-            self.observation_sequence, self.Tobs_sum = graph.make_hpso_sequence(
+            (
+                self.observation_sequence,
+                self.Tobs_sum,
+            ) = graph.make_hpso_sequence(
                 self.telescope, Tsequence, Tobs_min, verbose=True
             )
         else:
-            self.observation_sequence, self.Tobs_sum = graph.make_observation_sequence(
-                self.csv, Tsequence, Tobs_min, self.observations, self.pipelines_in_observations, self.pipeline_identifiers, verbose=True
+            (
+                self.observation_sequence,
+                self.Tobs_sum,
+            ) = graph.make_observation_sequence(
+                self.csv,
+                Tsequence,
+                Tobs_min,
+                self.observations,
+                self.pipelines_in_observations,
+                self.pipeline_identifiers,
+                verbose=True,
             )
         print("{:.3f} d total".format(self.Tobs_sum / 3600 / 24))
         random.shuffle(self.observation_sequence)
@@ -234,8 +286,8 @@ class ScheduleSimulation:
         else:
             self.nodes = graph.observation_sequence_to_nodes(
                 self.csv,
-                self.observations, 
-                self.pipelines_in_observations, 
+                self.observations,
+                self.pipelines_in_observations,
                 self.pipeline_identifiers,
                 self.observation_sequence,
                 self.capacities,
@@ -249,15 +301,23 @@ class ScheduleSimulation:
         )
         if display_node_info:
             for node in self.nodes:
-                print("{} ({}, t={} s)".format(node.name, node.hpso, node.time))
+                print(
+                    "{} ({}, t={} s)".format(node.name, node.hpso, node.time)
+                )
                 for cost, amount in node.cost.items():
                     if cost in graph.Resources.units:
                         unit, mult = graph.Resources.units[cost]
-                        print(" {}={:.2f} {}".format(cost, amount / mult, unit))
+                        print(
+                            " {}={:.2f} {}".format(cost, amount / mult, unit)
+                        )
                 for cost, amount in node.edge_cost.items():
                     if cost in graph.Resources.units:
                         unit, mult = graph.Resources.units[cost]
-                        print(" -> {}={:.2f} {}".format(cost, amount / mult, unit))
+                        print(
+                            " -> {}={:.2f} {}".format(
+                                cost, amount / mult, unit
+                            )
+                        )
                 print()
 
     def sanity_check(self):
@@ -266,7 +326,9 @@ class ScheduleSimulation:
             for cost, amount in task.all_cost().items():
                 assert (
                     cost in self.capacities
-                ), "No {} capacity defined, required by {}!".format(cost, task.name)
+                ), "No {} capacity defined, required by {}!".format(
+                    cost, task.name
+                )
                 assert (
                     amount <= self.capacities[cost]
                 ), "Not enough {} capacity to run {} ({:g}<{:g}!)".format(
@@ -297,13 +359,17 @@ class ScheduleSimulation:
 
     def schedule_tasks(self):
         t = time.time()
-        self.usage, self.task_time, self.task_edge_end_time = scheduler.schedule(
-            self.nodes, self.capacities, verbose=False
-        )
+        (
+            self.usage,
+            self.task_time,
+            self.task_edge_end_time,
+        ) = scheduler.schedule(self.nodes, self.capacities, verbose=False)
         print("Scheduling took {:.3f}s".format(time.time() - t))
         print(
             "Observing efficiency: {:.1f}%".format(
-                self.Tobs_sum / self.usage[graph.Resources.Observatory].end() * 100
+                self.Tobs_sum
+                / self.usage[graph.Resources.Observatory].end()
+                * 100
             )
         )
         trace_end = max(*self.task_edge_end_time.values())
@@ -315,7 +381,9 @@ class ScheduleSimulation:
             unit, mult = graph.Resources.units[cost]
             pylab.subplot(len(self.usage), 1, n + 1)
             pylab.step(
-                [0] + [t / 24 / 3600 for t in levels._trace.keys()] + [trace_end],
+                [0]
+                + [t / 24 / 3600 for t in levels._trace.keys()]
+                + [trace_end],
                 [0] + [v / mult for v in levels._trace.values()] + [0],
                 where="post",
             )
@@ -368,7 +436,9 @@ class ScheduleSimulation:
         total_cost = 250 * Constants.mega
 
         @interact_manual(
-            costs=SelectMultiple(options=graph.Resources.All, value=interesting_costs),
+            costs=SelectMultiple(
+                options=graph.Resources.All, value=interesting_costs
+            ),
             percent=(1, 100, 1),
             percent_step=(1, 10, 1),
             count=(1, 100, 1),
@@ -444,7 +514,12 @@ class ScheduleSimulation:
         new_capacities[graph.Resources.InputBuffer] = (
             self.capacities[graph.Resources.InputBuffer] // 2
         )
-        usage2, task_time2, task_edge_end_time2, failed_usage2 = scheduler.reschedule(
+        (
+            usage2,
+            task_time2,
+            task_edge_end_time2,
+            failed_usage2,
+        ) = scheduler.reschedule(
             self.nodes,
             new_capacities,
             5 * 24 * 3600,
@@ -452,7 +527,12 @@ class ScheduleSimulation:
             self.task_edge_end_time,
             verbose=False,
         )
-        usage3, task_time3, task_edge_end_time3, failed_usage3 = scheduler.reschedule(
+        (
+            usage3,
+            task_time3,
+            task_edge_end_time3,
+            failed_usage3,
+        ) = scheduler.reschedule(
             self.nodes,
             self.capacities,
             8 * 24 * 3600,
@@ -473,7 +553,9 @@ class ScheduleSimulation:
                 failed_usage2[cost] + failed_usage3[cost],
             ]:
                 pylab.step(
-                    [0] + [t / 24 / 3600 for t in levels._trace.keys()] + [trace_end],
+                    [0]
+                    + [t / 24 / 3600 for t in levels._trace.keys()]
+                    + [trace_end],
                     [0] + [v / mult for v in levels._trace.values()] + [0],
                     where="post",
                 )

@@ -1,26 +1,32 @@
 from __future__ import print_function
 
+import copy
+import os
+
 # from builtins import int
 import warnings
+from pathlib import Path
+from typing import Optional, Union
 
 import numpy as np
-import sympy
 import pylru  # Install using pip (conda doesn't resolve this in my test)
-import copy
+import sympy
 import yaml
-import os
-from pathlib import Path
-from typing import Union, Optional
 
-from .parameters.container import ParameterContainer, BLDep
-from .parameters import definitions as p
-from .parameters.definitions import (Telescopes, Pipelines, Bands)
-from .parameters import equations as f
-from .parameters.definitions import ALL_PARAMETER_KEYS
 # from .parameters.definitions import Constants as c
 from . import evaluate
+from .parameters import definitions as p
+from .parameters import equations as f
+from .parameters.container import BLDep, ParameterContainer
+from .parameters.definitions import (
+    ALL_PARAMETER_KEYS,
+    Bands,
+    Pipelines,
+    Telescopes,
+)
 
 TEL_PARAM_CACHE = pylru.lrucache(1000)
+
 
 class PipelineConfig:
     """
@@ -29,15 +35,17 @@ class PipelineConfig:
     """
 
     def __init__(
-            self, 
-            use_yaml: bool=False,
-            yaml_path: Optional[Union[str, Path]]=None,
-            telescope: Optional[str]=None,
-            pipeline: Optional[str]=None,
-            band: Optional[str]=None,
-            hpso: Optional[str]=None,
-            hpso_pipe: Optional[str]=None,
-            adjusts={}, **kwargs):
+        self,
+        use_yaml: bool = False,
+        yaml_path: Optional[Union[str, Path]] = None,
+        telescope: Optional[str] = None,
+        pipeline: Optional[str] = None,
+        band: Optional[str] = None,
+        hpso: Optional[str] = None,
+        hpso_pipe: Optional[str] = None,
+        adjusts={},
+        **kwargs,
+    ):
         """
         :param telescope: Telescope to use (can be omitted if HPSO specified)
         :param pipeline: Pipeline mode (can be omitted if HPSO specified)
@@ -49,38 +57,47 @@ class PipelineConfig:
           adjustments automatically. Can be a string of the the form
           "name=val name2=val flag".
         """
-        
+
         params = ParameterContainer()
-        
-        
+
         # Build PipelineConfig using custom parameters read from a yaml file
         if use_yaml:
             if not yaml_path:
-                raise ValueError("yaml_path must be specified when use_yaml set to True")
+                raise ValueError(
+                    "yaml_path must be specified when use_yaml set to True"
+                )
             self._parse_yaml(yaml_path)
-            
+
             p.apply_telescope_parameters(params, self.telescope)
             p.apply_band_parameters(params, self.band)
-            
+
             p.apply_yaml_parameters(params, self.yaml_parameters)
-            
-            array_config_file = self.yaml_parameters.get("array_config_file", None)
-            array_config_bins = self.yaml_parameters.get("array_config_bins", None)
-            
-            if (array_config_file or array_config_bins):
+
+            array_config_file = self.yaml_parameters.get(
+                "array_config_file", None
+            )
+            array_config_bins = self.yaml_parameters.get(
+                "array_config_bins", None
+            )
+
+            if array_config_file or array_config_bins:
                 if not (array_config_file and array_config_bins):
-                    raise KeyError("Both 'array_config_file' and 'array_config_bins' must be specified, or neither must be specified")
-                
+                    raise KeyError(
+                        "Both 'array_config_file' and 'array_config_bins' must be specified, or neither must be specified"
+                    )
+
                 Bmax = self.yaml_parameters.get("Bmax", None)
                 if not Bmax:
-                    raise KeyError("'Bmax' must be specified in yaml when custom array is used.")
-                
-                p.apply_custom_array_parameters(params, array_config_file, array_config_bins, Bmax)
+                    raise KeyError(
+                        "'Bmax' must be specified in yaml when custom array is used."
+                    )
 
+                p.apply_custom_array_parameters(
+                    params, array_config_file, array_config_bins, Bmax
+                )
 
         # Hard-coded HPSO functionality
         else:
-            
             # Alias for now
             if hpso_pipe is not None:
                 pipeline = hpso_pipe
@@ -92,7 +109,9 @@ class PipelineConfig:
                 assert hpso in p.HPSOs.hpso_telescopes
                 assert pipeline is not None
                 if telescope or band:
-                    raise ValueError("If `hpso` is used then `telescope` and `band` mustn't be specified.")
+                    raise ValueError(
+                        "If `hpso` is used then `telescope` and `band` mustn't be specified."
+                    )
 
                 self.hpso = hpso
                 self.hpso_pipe = pipeline
@@ -101,12 +120,14 @@ class PipelineConfig:
 
                 p.apply_telescope_parameters(params, self.telescope)
                 p.apply_hpso_parameters(params, hpso, pipeline)
-                if hasattr(params, 'pipeline'):
+                if hasattr(params, "pipeline"):
                     pipeline = params.pipeline
             else:
                 # This may be a bit of an outdated case; we mainly work in terms of HPSOs
                 if not (telescope and band):
-                    raise ValueError("`hpso` hasn't been set, so both `telescope` and `band` are needed.")
+                    raise ValueError(
+                        "`hpso` hasn't been set, so both `telescope` and `band` are needed."
+                    )
                 self.band = band
                 self.telescope = telescope
                 self.pipeline = pipeline
@@ -115,36 +136,38 @@ class PipelineConfig:
 
             # Adjustments from keyword arguments
             if isinstance(adjusts, str):
+
                 def mk_adjust(adjust):
                     # Setting a field?
-                    fields = adjust.split('=')
+                    fields = adjust.split("=")
                     if len(fields) == 2:
                         return (fields[0], eval(fields[1]))
                     # Otherwise assume that it's a flag
                     return (adjust, True)
-                adjusts = dict(map(mk_adjust, adjusts.split(' ')))
-        
-        
+
+                adjusts = dict(map(mk_adjust, adjusts.split(" ")))
+
         self.adjusts = dict(adjusts)
         self.adjusts.update(**kwargs)
-        assert 'max_baseline' not in self.adjusts, 'Please use Bmax for consistency!'
+        assert (
+            "max_baseline" not in self.adjusts
+        ), "Please use Bmax for consistency!"
 
         # Store max allowed baseline length, load default parameters
         self.max_allowed_baseline = params.baseline_bins[-1]
-        if 'Bmax' not in self.adjusts:
-            self.adjusts['Bmax'] = params.Bmax
+        if "Bmax" not in self.adjusts:
+            self.adjusts["Bmax"] = params.Bmax
         self.default_frequencies = params.Nf_max
-        if 'Nf_max' not in self.adjusts:
-            self.adjusts['Nf_max'] = params.Nf_max
+        if "Nf_max" not in self.adjusts:
+            self.adjusts["Nf_max"] = params.Nf_max
 
-            
-    def _parse_yaml(self, yaml_path, custom_array=False, array_config=None, num_bins=None):
-               
+    def _parse_yaml(
+        self, yaml_path, custom_array=False, array_config=None, num_bins=None
+    ):
         # Read yaml file
-        with open(yaml_path, 'r') as file:
+        with open(yaml_path, "r") as file:
             config_dict = yaml.safe_load(file)
-            
-        
+
         # Add required PipelineConfig attributes
         try:
             setattr(self, "telescope", config_dict["telescope"])
@@ -158,28 +181,29 @@ class PipelineConfig:
             setattr(self, "pipeline", config_dict["pipeline"])
         except KeyError:
             raise KeyError("'pipeline' must be specified in the yaml")
-        
-        
-        
+
         # Initialise yaml_parameters attribute
         self.yaml_parameters = {}
-        
+
         # Populate PipelineConfig attributes from the yaml file
         for key in config_dict:
             if key not in ALL_PARAMETER_KEYS:
-                warnings.warn(f"The parameter '{key}' specified in the yaml is not recognised")
-            
+                warnings.warn(
+                    f"The parameter '{key}' specified in the yaml is not recognised"
+                )
+
             self.yaml_parameters[key] = config_dict[key]
-            
-        assert self.yaml_parameters.get("name", None), "Observation name must be specified in yaml."
+
+        assert self.yaml_parameters.get(
+            "name", None
+        ), "Observation name must be specified in yaml."
         self.name = self.yaml_parameters["name"]
-            
+
         # Add yaml file name attribute so PipelineConfig.describe() method displays the yaml
         self.yaml_name = os.path.split(yaml_path)[1]
-            
 
     def describe(self):
-        """ Returns a name that identifies this configuration. """
+        """Returns a name that identifies this configuration."""
 
         # Identify by either (HPSO + pipeline), (pipeline + yaml_name), or (pipeline + band)
         if hasattr(self, "hpso"):
@@ -187,26 +211,28 @@ class PipelineConfig:
         elif hasattr(self, "yaml_name"):
             name = f"{self.pipeline} ({self.yaml_name})"
         else:
-            name = self.pipeline + ' (' + self.telescope + ":" + self.band + ')'
+            name = (
+                self.pipeline + " (" + self.telescope + ":" + self.band + ")"
+            )
 
         # Add modifiers
         for n, val in self.adjusts.items():
             if isinstance(val, np.ndarray):
                 continue
-            if n == 'Nf_max' and self.adjusts[n] == self.default_frequencies:
+            if n == "Nf_max" and self.adjusts[n] == self.default_frequencies:
                 continue
-            if n == 'Bmax' and self.adjusts[n] == self.max_allowed_baseline:
+            if n == "Bmax" and self.adjusts[n] == self.max_allowed_baseline:
                 continue
-            if n == 'on_the_fly':
-                n = 'otf'
-            if n == 'scale_predict_by_facet':
-                n = 'spbf'
+            if n == "on_the_fly":
+                n = "otf"
+            if n == "scale_predict_by_facet":
+                n = "spbf"
             if val == True:
-                name += ' [%s]' % n
+                name += " [%s]" % n
             elif val == False:
-                name += ' [!%s]' % n
+                name += " [!%s]" % n
             else:
-                name += ' [%s=%s]' % (n, val)
+                name += " [%s=%s]" % (n, val)
 
         return name
 
@@ -219,7 +245,7 @@ class PipelineConfig:
         telescope = self.telescope
         band = self.band
         if telescope in Telescopes.available_teles:
-            is_compatible = (band in Bands.telescope_bands[telescope])
+            is_compatible = band in Bands.telescope_bands[telescope]
         else:
             raise ValueError("Unknown telescope %s" % telescope)
 
@@ -234,26 +260,43 @@ class PipelineConfig:
         okay = True
 
         # Maximum baseline
-        if self.adjusts['Bmax'] > self.max_allowed_baseline:
-            messages.append('WARNING: Bmax (%g m) exceeds the maximum ' \
-                            'allowed baseline of %g m for telescope \'%s\'.' \
-                % (self.adjusts['Bmax'], self.max_allowed_baseline, self.telescope))
+        if self.adjusts["Bmax"] > self.max_allowed_baseline:
+            messages.append(
+                "WARNING: Bmax (%g m) exceeds the maximum "
+                "allowed baseline of %g m for telescope '%s'."
+                % (
+                    self.adjusts["Bmax"],
+                    self.max_allowed_baseline,
+                    self.telescope,
+                )
+            )
 
         # Only pure pipelines supported?
         if pure_pipelines:
             if self.pipeline not in Pipelines.pure_pipelines:
-                messages.append("ERROR: The '%s' imaging pipeline is currently not supported" % str(self.pipeline))
+                messages.append(
+                    "ERROR: The '%s' imaging pipeline is currently not supported"
+                    % str(self.pipeline)
+                )
                 okay = False
 
         # Band compatibility. Can skip for HPSOs, as they override the
         # band manually.
-        if (hasattr(self, "hpso") and hasattr(self, "band")) or (not (hasattr(self, "hpso") or hasattr(self, "band"))):
-                messages.append("ERROR: Either the Imaging Band or an HPSO needs to be defined (and not both).")
-                okay = False
+        if (hasattr(self, "hpso") and hasattr(self, "band")) or (
+            not (hasattr(self, "hpso") or hasattr(self, "band"))
+        ):
+            messages.append(
+                "ERROR: Either the Imaging Band or an HPSO needs to be defined (and not both)."
+            )
+            okay = False
 
-        if not (hasattr(self, "hpso") or self.telescope_and_band_are_compatible()):
-            messages.append("ERROR: Telescope '%s' and band '%s' are not compatible" %
-                              (str(self.telescope), str(self.band)))
+        if not (
+            hasattr(self, "hpso") or self.telescope_and_band_are_compatible()
+        ):
+            messages.append(
+                "ERROR: Telescope '%s' and band '%s' are not compatible"
+                % (str(self.telescope), str(self.band))
+            )
             okay = False
 
         if not hasattr(self, "pipeline"):
@@ -262,9 +305,14 @@ class PipelineConfig:
 
         return (okay, messages)
 
-    def calc_tel_params(cfg, verbose=False, adjusts={}, symbolify='',
-                        optimize_expression='Rflop',
-                        clear_symbolised=None):
+    def calc_tel_params(
+        cfg,
+        verbose=False,
+        adjusts={},
+        symbolify="",
+        optimize_expression="Rflop",
+        clear_symbolised=None,
+    ):
         """
         Calculates telescope parameters for this configuration.  Some
         values may (optionally) be overwritten, e.g. the
@@ -280,12 +328,20 @@ class PipelineConfig:
            (only if symbolify is not set. Default on if optimize_expression is not None.)
         """
 
-        assert cfg.is_valid()[0], "calc_tel_params must be called for a valid pipeline configuration!"
+        assert cfg.is_valid()[
+            0
+        ], "calc_tel_params must be called for a valid pipeline configuration!"
         if clear_symbolised is None:
-            clear_symbolised = (optimize_expression is not None)
+            clear_symbolised = optimize_expression is not None
 
         # Check whether we have a cached copy
-        tel_param_desc = (cfg.describe(), str(adjusts.items()), symbolify, optimize_expression, clear_symbolised)
+        tel_param_desc = (
+            cfg.describe(),
+            str(adjusts.items()),
+            symbolify,
+            optimize_expression,
+            clear_symbolised,
+        )
         if not verbose:
             if tel_param_desc in TEL_PARAM_CACHE:
                 return copy.deepcopy(TEL_PARAM_CACHE[tel_param_desc])
@@ -310,23 +366,35 @@ class PipelineConfig:
         elif hasattr(cfg, "band"):
             p.apply_band_parameters(telescope_params, cfg.band)
             p.apply_pipeline_parameters(telescope_params, cfg.pipeline)
-            
+
         if hasattr(cfg, "yaml_parameters"):
-            
             p.apply_yaml_parameters(telescope_params, cfg.yaml_parameters)
-            
-            array_config_file = cfg.yaml_parameters.get("array_config_file", None)
-            array_config_bins = cfg.yaml_parameters.get("array_config_bins", None)
-            
-            if (array_config_file or array_config_bins):
+
+            array_config_file = cfg.yaml_parameters.get(
+                "array_config_file", None
+            )
+            array_config_bins = cfg.yaml_parameters.get(
+                "array_config_bins", None
+            )
+
+            if array_config_file or array_config_bins:
                 if not (array_config_file and array_config_bins):
-                    raise KeyError("Both 'array_config_file' and 'array_config_bins' must be specified, or neither must be specified")
+                    raise KeyError(
+                        "Both 'array_config_file' and 'array_config_bins' must be specified, or neither must be specified"
+                    )
                 else:
                     Bmax = cfg.yaml_parameters.get("Bmax", None)
                     if not Bmax:
-                        raise KeyError("'Bmax' must be specified in yaml when custom array is used.")
-                    
-                    p.apply_custom_array_parameters(telescope_params, array_config_file, array_config_bins, Bmax)
+                        raise KeyError(
+                            "'Bmax' must be specified in yaml when custom array is used."
+                        )
+
+                    p.apply_custom_array_parameters(
+                        telescope_params,
+                        array_config_file,
+                        array_config_bins,
+                        Bmax,
+                    )
 
         # Apply parameter adjustments. Needs to be done before bin
         # calculation in case Bmax gets changed.  Note that an
@@ -339,7 +407,9 @@ class PipelineConfig:
         if telescope_params.blcoal:
             # Limit bins to those shorter than Bmax
             bins = telescope_params.baseline_bins
-            nbins_used = min(bins.searchsorted(telescope_params.Bmax) + 1, len(bins))
+            nbins_used = min(
+                bins.searchsorted(telescope_params.Bmax) + 1, len(bins)
+            )
             bins = bins[:nbins_used]
 
             # Same for baseline sizes. Note that we normalise /before/
@@ -349,49 +419,59 @@ class PipelineConfig:
             binfracs = binfracs[:nbins_used]
 
             # Calculate old and new bin sizes
-            binsize = bins[nbins_used-1]
+            binsize = bins[nbins_used - 1]
             binsizeNew = telescope_params.Bmax
             if nbins_used > 1:
-                binsize -= bins[nbins_used-2]
-                binsizeNew -= bins[nbins_used-2]
+                binsize -= bins[nbins_used - 2]
+                binsizeNew -= bins[nbins_used - 2]
 
             # Scale last bin
-            bins[nbins_used-1] = telescope_params.Bmax
-            binfracs[nbins_used-1] *= float(binsizeNew) / float(binsize)
+            bins[nbins_used - 1] = telescope_params.Bmax
+            binfracs[nbins_used - 1] *= float(binsizeNew) / float(binsize)
             if verbose:
                 print("Baseline coalescing on")
         else:
             if verbose:
                 print("Baseline coalescing off")
-            telescope_params.baseline_bins = np.array((telescope_params.Bmax,))  # m
+            telescope_params.baseline_bins = np.array(
+                (telescope_params.Bmax,)
+            )  # m
             telescope_params.baseline_bin_distribution = np.array((1.0,))
             bins = [telescope_params.Bmax]
-            binfracs=[1.0]
+            binfracs = [1.0]
 
         # Apply imaging equations
-        f.apply_imaging_equations(telescope_params, cfg.pipeline,
-                                  bins, binfracs,
-                                  verbose, symbolify)
+        f.apply_imaging_equations(
+            telescope_params, cfg.pipeline, bins, binfracs, verbose, symbolify
+        )
 
         # Free symbols to minimise?
-        if symbolify == '' and optimize_expression is not None and \
-           telescope_params.get(optimize_expression) is not None and \
-           isinstance(telescope_params.get(optimize_expression), sympy.Expr) and \
-           len(telescope_params.get(optimize_expression).free_symbols) > 0:
-
+        if (
+            symbolify == ""
+            and optimize_expression is not None
+            and telescope_params.get(optimize_expression) is not None
+            and isinstance(
+                telescope_params.get(optimize_expression), sympy.Expr
+            )
+            and len(telescope_params.get(optimize_expression).free_symbols) > 0
+        ):
             # Minimise
-            substs = evaluate.minimise_parameters(telescope_params, optimize_expression, verbose=verbose)
+            substs = evaluate.minimise_parameters(
+                telescope_params, optimize_expression, verbose=verbose
+            )
             telescope_params = telescope_params.subs(substs)
 
         # Clear unoptimised values?
-        if symbolify == '' and clear_symbolised:
+        if symbolify == "" and clear_symbolised:
             telescope_params.clear_symbolised()
 
         # Cache, return
         TEL_PARAM_CACHE[tel_param_desc] = copy.deepcopy(telescope_params)
         return telescope_params
 
-    def eval_expression_products(pipelineConfig, expression='Rflop', verbose=False):
+    def eval_expression_products(
+        pipelineConfig, expression="Rflop", verbose=False
+    ):
         """
         Evaluate a parameter sum for each product
 
@@ -400,22 +480,27 @@ class PipelineConfig:
         :param verbose: Verbosity to use for `calc_tel_params`
         """
 
-        values={}
+        values = {}
         tp = pipelineConfig.calc_tel_params(verbose)
 
         # Loop through defined products, add to result
         for name, product in tp.products.items():
             if expression in product:
-                values[name] = values.get(name, 0) + \
-                               evaluate.evaluate_expression(product[expression], tp)
+                values[name] = values.get(
+                    name, 0
+                ) + evaluate.evaluate_expression(product[expression], tp)
 
         return values
 
-
-    def eval_param_sweep_1d(pipelineConfig, expression_string='Rflop',
-                            parameter_string='Rccf', param_val_min=10,
-                            param_val_max=10, number_steps=1,
-                            verbose=False):
+    def eval_param_sweep_1d(
+        pipelineConfig,
+        expression_string="Rflop",
+        parameter_string="Rccf",
+        param_val_min=10,
+        param_val_max=10,
+        number_steps=1,
+        verbose=False,
+    ):
         """Evaluates an expression for a range of different parameter values,
         by varying the parameter linearly in a specified range in a
         number of steps
@@ -434,11 +519,22 @@ class PipelineConfig:
         """
         assert param_val_max > param_val_min
 
-        print("Starting sweep of parameter %s, evaluating expression %s over range (%s, %s) in %d steps "
-              "(i.e. %d data points)" %
-              (parameter_string, expression_string, str(param_val_min), str(param_val_max), number_steps, number_steps + 1))
+        print(
+            "Starting sweep of parameter %s, evaluating expression %s over range (%s, %s) in %d steps "
+            "(i.e. %d data points)"
+            % (
+                parameter_string,
+                expression_string,
+                str(param_val_min),
+                str(param_val_max),
+                number_steps,
+                number_steps + 1,
+            )
+        )
 
-        param_values = np.linspace(param_val_min, param_val_max, num=number_steps + 1)
+        param_values = np.linspace(
+            param_val_min, param_val_max, num=number_steps + 1
+        )
 
         results = []
         for i in range(len(param_values)):
@@ -447,18 +543,36 @@ class PipelineConfig:
             tp = pipelineConfig.calc_tel_params(verbose, adjusts=adjusts)
 
             percentage_done = i * 100.0 / len(param_values)
-            print("> %.1f%% done: Evaluating %s for %s = %g" % (percentage_done, expression_string,
-                                                                parameter_string, param_values[i]))
+            print(
+                "> %.1f%% done: Evaluating %s for %s = %g"
+                % (
+                    percentage_done,
+                    expression_string,
+                    parameter_string,
+                    param_values[i],
+                )
+            )
 
             # Perform a check to see that the value of the assigned parameter wasn't changed by the imaging equations,
             # otherwise the assigned value would have been lost (i.e. not a free parameter)
             parameter_final_value = tp.get(parameter_string)
             eta = 1e-10
-            if abs((parameter_final_value - param_values[i])/param_values[i]) > eta:
-                raise AssertionError('Value assigned to %s seems to be overwritten after assignment '
-                                     'by the method compute_derived_parameters(). (%g -> %g). '
-                                     'Cannot peform parameter sweep.'
-                                     % (parameter_string, param_values[i], parameter_final_value))
+            if (
+                abs(
+                    (parameter_final_value - param_values[i]) / param_values[i]
+                )
+                > eta
+            ):
+                raise AssertionError(
+                    "Value assigned to %s seems to be overwritten after assignment "
+                    "by the method compute_derived_parameters(). (%g -> %g). "
+                    "Cannot peform parameter sweep."
+                    % (
+                        parameter_string,
+                        param_values[i],
+                        parameter_final_value,
+                    )
+                )
 
             if expression_string.find(".") >= 0:
                 product, expr = expression_string.split(".")
@@ -467,13 +581,17 @@ class PipelineConfig:
                 result_expression = tp.get(expression_string)
             results.append(evaluate.evaluate_expression(result_expression, tp))
 
-        print('done with parameter sweep!')
+        print("done with parameter sweep!")
         return (param_values, results)
 
-
-    def eval_param_sweep_2d(pipelineConfig, expression_string='Rflop',
-                            parameters=None, params_ranges=None,
-                            number_steps=2, verbose=False):
+    def eval_param_sweep_2d(
+        pipelineConfig,
+        expression_string="Rflop",
+        parameters=None,
+        params_ranges=None,
+        number_steps=2,
+        verbose=False,
+    ):
         """
         Evaluates an expression for a 2D grid of different values for
         two parameters, by varying each parameter linearly in a
@@ -498,16 +616,35 @@ class PipelineConfig:
 
         n_param_x_values = number_steps + 1
         n_param_y_values = number_steps + 1
-        nr_evaluations = n_param_x_values * n_param_y_values  # The number of function evaluations that will be required
+        nr_evaluations = (
+            n_param_x_values * n_param_y_values
+        )  # The number of function evaluations that will be required
 
-        print("Evaluating expression %s while\nsweeping parameters %s and %s over 2D domain [%s, %s] x [%s, %s] in %d "
-              "steps each,\nfor a total of %d data evaluation points" %
-              (expression_string, parameters[0], parameters[1], str(params_ranges[0][0]), str(params_ranges[0][1]),
-               str(params_ranges[1][0]), str(params_ranges[1][1]), number_steps, nr_evaluations))
+        print(
+            "Evaluating expression %s while\nsweeping parameters %s and %s over 2D domain [%s, %s] x [%s, %s] in %d "
+            "steps each,\nfor a total of %d data evaluation points"
+            % (
+                expression_string,
+                parameters[0],
+                parameters[1],
+                str(params_ranges[0][0]),
+                str(params_ranges[0][1]),
+                str(params_ranges[1][0]),
+                str(params_ranges[1][1]),
+                number_steps,
+                nr_evaluations,
+            )
+        )
 
-        param_x_values = np.linspace(params_ranges[0][0], params_ranges[0][1], num=n_param_x_values)
-        param_y_values = np.linspace(params_ranges[1][0], params_ranges[1][1], num=n_param_y_values)
-        results = np.zeros((n_param_x_values, n_param_y_values))  # Create an empty numpy matrix to hold results
+        param_x_values = np.linspace(
+            params_ranges[0][0], params_ranges[0][1], num=n_param_x_values
+        )
+        param_y_values = np.linspace(
+            params_ranges[1][0], params_ranges[1][1], num=n_param_y_values
+        )
+        results = np.zeros(
+            (n_param_x_values, n_param_y_values)
+        )  # Create an empty numpy matrix to hold results
 
         # Nested 2D loop over all values for param1 and param2. Indexes iterate over y (inner loop), then x (outer loop)
         for ix in range(n_param_x_values):
@@ -522,35 +659,64 @@ class PipelineConfig:
                 }
                 tp = pipelineConfig.calc_tel_params(verbose, adjusts=adjusts)
 
-                percentage_done = (ix * n_param_y_values + iy) * 100.0 / nr_evaluations
-                print("> %.1f%% done: Evaluating %s for (%s, %s) = (%s, %s)" % (percentage_done, expression_string,
-                                                                                parameters[0], parameters[1],
-                                                                                str(param_x_value), str(param_y_value)))
+                percentage_done = (
+                    (ix * n_param_y_values + iy) * 100.0 / nr_evaluations
+                )
+                print(
+                    "> %.1f%% done: Evaluating %s for (%s, %s) = (%s, %s)"
+                    % (
+                        percentage_done,
+                        expression_string,
+                        parameters[0],
+                        parameters[1],
+                        str(param_x_value),
+                        str(param_y_value),
+                    )
+                )
 
                 # Perform a check to see that the value of the assigned parameters weren't changed by the imaging
                 # equations, otherwise the assigned values would have been lost (i.e. not free parameters)
                 parameter1_final_value = tp.get(parameters[0])
                 parameter2_final_value = tp.get(parameters[1])
                 eta = 1e-10
-                if abs((parameter1_final_value - param_x_value) / param_x_value) > eta:
-                    raise AssertionError('Value assigned to %s seems to be overwritten after assignment '
-                                         'by the method compute_derived_parameters(). Cannot peform parameter sweep.'
-                                         % parameters[0])
-                if abs((parameter2_final_value - param_y_value) / param_y_value) > eta:
+                if (
+                    abs(
+                        (parameter1_final_value - param_x_value)
+                        / param_x_value
+                    )
+                    > eta
+                ):
+                    raise AssertionError(
+                        "Value assigned to %s seems to be overwritten after assignment "
+                        "by the method compute_derived_parameters(). Cannot peform parameter sweep."
+                        % parameters[0]
+                    )
+                if (
+                    abs(
+                        (parameter2_final_value - param_y_value)
+                        / param_y_value
+                    )
+                    > eta
+                ):
                     print(parameter2_final_value)
                     print(param_y_value)
-                    raise AssertionError('Value assigned to %s seems to be overwritten after assignment '
-                                         'by the method compute_derived_parameters(). Cannot peform parameter sweep.'
-                                         % parameters[1])
+                    raise AssertionError(
+                        "Value assigned to %s seems to be overwritten after assignment "
+                        "by the method compute_derived_parameters(). Cannot peform parameter sweep."
+                        % parameters[1]
+                    )
 
                 result_expression = tp.get(expression_string)
-                results[iy, ix] = evaluate.evaluate_expression(result_expression, tp)
+                results[iy, ix] = evaluate.evaluate_expression(
+                    result_expression, tp
+                )
 
-        print('done with parameter sweep!')
+        print("done with parameter sweep!")
         return (param_x_values, param_y_values, results)
 
-
-    def eval_products_symbolic(pipelineConfig, expression='Rflop', symbolify='product'):
+    def eval_products_symbolic(
+        pipelineConfig, expression="Rflop", symbolify="product"
+    ):
         """
         Returns formulas for the given product property.
 
@@ -568,9 +734,13 @@ class PipelineConfig:
             eqs[product] = tp.products[product].get(expression, 0)
         return eqs
 
-
-    def eval_symbols(pipelineConfig, symbols,
-                     recursive=False, symbolify='', optimize_expression=None):
+    def eval_symbols(
+        pipelineConfig,
+        symbols,
+        recursive=False,
+        symbolify="",
+        optimize_expression=None,
+    ):
         """Returns formulas for the given symbol names. This can be used to
         look up the definitions behind sympy Symbols returned by
         eval_products_symbolic or this function.
@@ -591,8 +761,10 @@ class PipelineConfig:
 
         # Optimise to settle Tsnap and Nfacet
         if not optimize_expression is None:
-            assert(symbolify == '') # Will likely fail otherwise
-            tp = pipelineConfig.calc_tel_params(optimize_expression=optimize_expression)
+            assert symbolify == ""  # Will likely fail otherwise
+            tp = pipelineConfig.calc_tel_params(
+                optimize_expression=optimize_expression
+            )
 
         # Create lookup map for symbols
         symMap = {}
@@ -604,10 +776,12 @@ class PipelineConfig:
         while len(symbols) > 0:
             new_symbols = set()
             for sym in symbols:
-                if sym in eqs: continue
+                if sym in eqs:
+                    continue
 
                 # Look up
-                if not sym in symMap: continue
+                if not sym in symMap:
+                    continue
                 v = symMap[str(sym)]
 
                 # If the equation is "name = name", it is not defined at this level. Push back to next level
@@ -615,6 +789,8 @@ class PipelineConfig:
                     continue
                 eqs[str(sym)] = v
                 if isinstance(v, sympy.Expr) or isinstance(v, BLDep):
-                    new_symbols = new_symbols.union(evaluate.collect_free_symbols([v]))
+                    new_symbols = new_symbols.union(
+                        evaluate.collect_free_symbols([v])
+                    )
             symbols = new_symbols
         return eqs

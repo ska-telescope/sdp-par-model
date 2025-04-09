@@ -1,12 +1,13 @@
-
-from sortedcontainers import SortedDict
 import operator
 
+from sortedcontainers import SortedDict
+
+
 class LevelTrace(object):
-    """ Traces the level of some entity across a time span """
+    """Traces the level of some entity across a time span"""
 
     def __init__(self, trace=None):
-        """ Creates a new level trace, possibly copying from an existing object. """
+        """Creates a new level trace, possibly copying from an existing object."""
 
         if trace is None:
             self._trace = SortedDict()
@@ -19,12 +20,14 @@ class LevelTrace(object):
         if len(self._trace) > 0 and self._trace[self._trace.keys()[-1]] != 0:
             raise ValueError(
                 "Trace not terminated - ends with {}:{}!".format(
-                    self._trace.keys()[-1], self._trace[self._trace.keys()[-1]])
+                    self._trace.keys()[-1], self._trace[self._trace.keys()[-1]]
                 )
+            )
 
     def __repr__(self):
-        items = ', '.join(["{!r}: {!r}".format(k, v)
-                           for k, v in self._trace.items()])
+        items = ", ".join(
+            ["{!r}: {!r}".format(k, v) for k, v in self._trace.items()]
+        )
         return "LevelTrace({{{}}})".format(items)
 
     def __eq__(self, other):
@@ -32,19 +35,21 @@ class LevelTrace(object):
 
     def __neg__(self):
         return self.map(operator.neg)
+
     def __sub__(self, other):
         return self.zip_with(other, operator.sub)
+
     def __add__(self, other):
         return self.zip_with(other, operator.add)
 
     def start(self):
-        """ Returns first non-null point in trace """
+        """Returns first non-null point in trace"""
         if len(self._trace) == 0:
             return 0
         return self._trace.keys()[0]
 
     def end(self):
-        """ Returns first point in trace that is null and only followed by nulls """
+        """Returns first point in trace that is null and only followed by nulls"""
         if len(self._trace) == 0:
             return 0
         return self._trace.keys()[-1]
@@ -64,6 +69,7 @@ class LevelTrace(object):
 
     def map(self, fn):
         return LevelTrace({t: fn(v) for t, v in self._trace.items()})
+
     def map_key(self, fn):
         return LevelTrace(dict(fn(t, v) for t, v in self._trace.items()))
 
@@ -71,7 +77,6 @@ class LevelTrace(object):
         return self.map_key(lambda t, v: (t + time, v))
 
     def __getitem__(self, where):
-
         # For non-slices defaults to get
         if not isinstance(where, slice):
             return self.get(where)
@@ -91,7 +96,7 @@ class LevelTrace(object):
         return res
 
     def set(self, start, end, level):
-        """ Sets the level for some time range
+        """Sets the level for some time range
         :param start: Start of range
         :param end: End of range
         :aram amount: Level to set
@@ -112,7 +117,7 @@ class LevelTrace(object):
                 prev_lvl = lvl
             # Otherwise look up previous level. Default 0 (see above)
             elif start_ix > 0:
-                (_, prev_lvl) = self._trace.peekitem(start_ix-1)
+                (_, prev_lvl) = self._trace.peekitem(start_ix - 1)
 
         # Prepare start
         if prev_lvl == level:
@@ -122,7 +127,9 @@ class LevelTrace(object):
             self._trace[start] = level
 
         # Remove all in-between states
-        for time in list(self._trace.irange(start, end, inclusive=(False, False))):
+        for time in list(
+            self._trace.irange(start, end, inclusive=(False, False))
+        ):
             lvl = self._trace[time]
             del self._trace[time]
 
@@ -133,9 +140,8 @@ class LevelTrace(object):
         elif level == self._trace[end]:
             del self._trace[end]
 
-
     def add(self, start, end, amount):
-        """ Increases the level for some time range
+        """Increases the level for some time range
         :param start: Start of range
         :param end: End of range
         :aram amount: Amount to add to level
@@ -158,7 +164,7 @@ class LevelTrace(object):
                 prev_lvl = lvl
             # Otherwise look up previous level. Default 0 (see above)
             elif start_ix > 0:
-                (_, prev_lvl) = self._trace.peekitem(start_ix-1)
+                (_, prev_lvl) = self._trace.peekitem(start_ix - 1)
 
         # Prepare start
         if prev_lvl == lvl + amount:
@@ -178,29 +184,30 @@ class LevelTrace(object):
             del self._trace[end]
 
     def __delitem__(self, where):
-
         # Cannot set single values
         if not isinstance(where, slice):
-            raise ValueError("Cannot set level for single point, pass an interval!")
+            raise ValueError(
+                "Cannot set level for single point, pass an interval!"
+            )
         if where.step is not None:
             raise ValueError("Stepping meaningless for LevelTrace!")
 
         # Set range to zero
-        start = (where.start if where.start is not None else self.start())
-        end = (where.stop if where.stop is not None else self.end())
+        start = where.start if where.start is not None else self.start()
+        end = where.stop if where.stop is not None else self.end()
         self.set(start, end, 0)
 
     def __setitem__(self, where, value):
-
         # Cannot set single values
         if not isinstance(where, slice):
-            raise ValueError("Cannot set level for single point, pass an interval!")
+            raise ValueError(
+                "Cannot set level for single point, pass an interval!"
+            )
         if where.step is not None:
             raise ValueError("Stepping meaningless for LevelTrace!")
 
         # Setting a level trace?
         if isinstance(value, LevelTrace):
-
             # Remove existing data
             del self[where]
             if where.start is not None:
@@ -209,14 +216,15 @@ class LevelTrace(object):
                 value = value.shift(where.start)
             if where.stop is not None:
                 if value.end() > where.stop:
-                    raise ValueError("Level trace to set is larger than slice!")
+                    raise ValueError(
+                        "Level trace to set is larger than slice!"
+                    )
             self._trace = (self + value)._trace
 
         else:
-
             # Otherwise set constant value
-            start = (where.start if where.start is not None else self.start())
-            end = (where.stop if where.stop is not None else self.end())
+            start = where.start if where.start is not None else self.start()
+            end = where.stop if where.stop is not None else self.end()
             self.set(start, end, value)
 
     def foldl1(self, start, end, fn):
@@ -235,10 +243,11 @@ class LevelTrace(object):
         return val
 
     def minimum(self, start, end):
-        """ Returns the lowest level in the given range """
+        """Returns the lowest level in the given range"""
         return self.foldl1(start, end, min)
+
     def maximum(self, start, end):
-        """ Returns the highest level in the given range """
+        """Returns the highest level in the given range"""
         return self.foldl1(start, end, max)
 
     def foldl_time(self, start, end, val, fn):
@@ -256,18 +265,20 @@ class LevelTrace(object):
         start_ix = self._trace.bisect_right(start)
         end_ix = self._trace.bisect_left(end)
         for time, lvl in self._trace.items()[start_ix:end_ix]:
-            val = fn(val, time-last_time, last_lvl)
+            val = fn(val, time - last_time, last_lvl)
             last_time = time
             last_lvl = lvl
 
-        return fn(val, end-last_time, last_lvl)
+        return fn(val, end - last_time, last_lvl)
 
     def integrate(self, start, end):
-        """ Returns the integral over a range (sum below level curve) """
-        return self.foldl_time(start, end, 0,
-                               lambda v, time, lvl: v + time * lvl)
+        """Returns the integral over a range (sum below level curve)"""
+        return self.foldl_time(
+            start, end, 0, lambda v, time, lvl: v + time * lvl
+        )
+
     def average(self, start, end):
-        """ Returns the average level over a given range """
+        """Returns the average level over a given range"""
         return self.integrate(start, end) / (end - start)
 
     def find_above(self, time, level):
@@ -303,7 +314,7 @@ class LevelTrace(object):
         """
 
         last = time
-        ix = self._trace.bisect_right(time)-1
+        ix = self._trace.bisect_right(time) - 1
         if ix >= 0:
             for t, lvl in self._trace.items()[ix::-1]:
                 if lvl <= level and time > t:
@@ -320,7 +331,7 @@ class LevelTrace(object):
         """
 
         last = time
-        ix = self._trace.bisect_right(time)-1
+        ix = self._trace.bisect_right(time) - 1
         if ix >= 0:
             for t, lvl in self._trace.items()[ix::-1]:
                 if lvl >= level and time > t:
@@ -339,7 +350,7 @@ class LevelTrace(object):
         if length < 0:
             raise ValueError("Period length must be larger than zero!")
 
-        period_start = (start if self.get(start) <= target else None)
+        period_start = start if self.get(start) <= target else None
 
         start_ix = self._trace.bisect_right(start)
         end_ix = self._trace.bisect_left(end)
@@ -350,7 +361,7 @@ class LevelTrace(object):
                     return period_start
             # Not enough space until end?
             elif time + length > end:
-               return None
+                return None
             # Above target? Reset period
             if lvl > target:
                 period_start = None
@@ -359,14 +370,13 @@ class LevelTrace(object):
                     period_start = time
 
         # Possible at end?
-        if period_start is not None and period_start+length <= end:
+        if period_start is not None and period_start + length <= end:
             return period_start
 
         # Nothing found
         return None
 
     def zip_with(self, other, fn):
-
         # Simple cases
         if len(self._trace) == 0:
             return other.map(lambda x: fn(0, x))
@@ -386,10 +396,9 @@ class LevelTrace(object):
 
         # Go through pairs
         while left_ix < len(left) and right_ix < len(right):
-
             # Next items
-            lt,lv = left[left_ix]
-            rt,rv = right[right_ix]
+            lt, lv = left[left_ix]
+            rt, rv = right[right_ix]
 
             # Determine what to do
             if lt < rt:
@@ -415,13 +424,13 @@ class LevelTrace(object):
 
         # Handle left-overs
         while left_ix < len(left):
-            lt,lv = left[left_ix]
+            lt, lv = left[left_ix]
             v = fn(lv, right_val)
             if v != last_val:
                 last_val = trace[lt] = v
             left_ix += 1
         while right_ix < len(right):
-            rt,rv = right[right_ix]
+            rt, rv = right[right_ix]
             v = fn(left_val, rv)
             if v != last_val:
                 last_val = trace[rt] = v
