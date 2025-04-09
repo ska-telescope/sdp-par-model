@@ -1,17 +1,23 @@
 """Functions for calculating and displaying SDP schedule simulations."""
-from sdp_par_model.parameters.definitions import Telescopes, Constants, HPSOs, Pipelines
-from sdp_par_model.scheduling import graph, scheduler, efficiency
-from sdp_par_model.config import PipelineConfig
-from sdp_par_model import reports
-
-import multiprocessing
-from matplotlib import pylab
-from IPython.display import display, Markdown
-from ipywidgets import interact_manual, SelectMultiple
 import math
+import multiprocessing
 import random
-import time
 import sys
+import time
+
+from IPython.display import Markdown, display
+from ipywidgets import SelectMultiple, interact_manual
+from matplotlib import pylab
+
+from sdp_par_model import reports
+from sdp_par_model.config import PipelineConfig
+from sdp_par_model.parameters.definitions import (
+    Constants,
+    HPSOs,
+    Pipelines,
+    Telescopes,
+)
+from sdp_par_model.scheduling import efficiency, graph, scheduler
 
 
 class ScheduleSimulation:

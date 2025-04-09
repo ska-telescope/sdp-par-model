@@ -3,154 +3,427 @@ This file contains methods for generating reports for SKA SDP
 parametric model data using especially matplotlib and Jupyter. Having
 these functions separate allows us to keep notebooks free of clutter.
 """
-import re
 import csv
-from IPython.display import display, HTML, FileLink
-from ipywidgets import FloatProgress, ToggleButtons, Text, Layout, interact_manual
-import matplotlib.pyplot as plt
+import os
+import re
+import subprocess
+from pathlib import Path
+from typing import Optional, Union
+
 import matplotlib.pylab as pylab
-from matplotlib import cm
+import matplotlib.pyplot as plt
 import numpy as np
 import sympy
-import subprocess
-import os
-from pathlib import Path
 import yaml
-from typing import Union, Optional
+from IPython.display import HTML, FileLink, display
+from ipywidgets import (
+    FloatProgress,
+    Layout,
+    Text,
+    ToggleButtons,
+    interact_manual,
+)
+from matplotlib import cm
 
 try:
     import pymp
-    HAVE_PYMP=True
-except:
-    HAVE_PYMP=False
 
-from .parameters.definitions import HPSOs, Pipelines, Telescopes, Bands, Constants as c
+    HAVE_PYMP = True
+except:
+    HAVE_PYMP = False
+
 from . import evaluate as imp
 from .config import PipelineConfig
+from .parameters.definitions import Bands
+from .parameters.definitions import Constants as c
+from .parameters.definitions import HPSOs, Pipelines, Telescopes
 
 # Possible verbosity levels
-VERBOSE_DISPLAY = ['Overview', 'Details', 'Debug']
+VERBOSE_DISPLAY = ["Overview", "Details", "Debug"]
 
 # Possible calculated results to display in the notebook
 RESULT_MAP = [
     # Table Row Title              Unit          Default? Sum?   Expression
-    ('-- Parameters --',           '',           True,    False, lambda tp: ''                    ),
-    ('Observation Name',         '',           True,    False, lambda tp: tp.name               ),
-    ('Telescope',                  '',           True,    False, lambda tp: tp.telescope          ),
-    ('Band',                       '',           True,    False, lambda tp: str(tp.band) if tp.band is not None else ''),
-    ('Frequency Min',              'GHz',        False,   False, lambda tp: tp.freq_min/c.giga    ),
-    ('Frequency Max',              'GHz',        False,   False, lambda tp: tp.freq_max/c.giga    ),
-    ('Pipeline',                   '',           True,    False, lambda tp: str(tp.pipeline)      ),
-    ('Baseline coalescing',        '',           True,    False, lambda tp: tp.blcoal             ),
-    ('On-the-fly kernels',         '',           True,    False, lambda tp: tp.on_the_fly         ),
-    ('Scale predict by facet',     '',           True,    False, lambda tp: tp.scale_predict_by_facet),
-    ('Max # of channels',          '',           True,    False, lambda tp: tp.Nf_max             ),
-    ('Max Baseline',               'km',         True,    False, lambda tp: tp.Bmax / c.kilo      ),
-    ('Dump time',                  's',          False,   False, lambda tp: tp.Tint_used          ),
-    ('Observation Time',           's',          False,   False, lambda tp: tp.Tobs               ),
-    ('Pointing Time',              's',          False,   False, lambda tp: tp.Tpoint             ),
-    ('Total Time',                 's',          False,   False, lambda tp: tp.Texp               ),
-    ('Snapshot Time',              's',          True,    False, lambda tp: tp.Tsnap              ),
-    ('Facets',                     '',           True,    False, lambda tp: tp.Nfacet             ),
-    ('w-stacking planes',          '',           True,    False, lambda tp: tp.Nwstack            ),
-    ('w-stacking planes predict',  '',           True,    False, lambda tp: tp.Nwstack_predict    ),
-    ('Stations/antennas',          '',           False,   False, lambda tp: tp.Na                 ),
-    ('Max Baseline [per bin]',     'km',         False,   False, lambda tp: [ bin['b'] / c.kilo
-                                                                              for  bin in tp.baseline_bins ]),
-    ('Baseline fraction [per bin]','%',          False,   False, lambda tp: [ 100*bin['bfrac']
-                                                                              for  bin in tp.baseline_bins ]),
-    ('-- Image --',                '',           True,    False, lambda tp: ''                    ),
-    ('Facet FoV size',             'deg',        False,   False, lambda tp: tp.Theta_fov/c.degree ),
-    ('Total FoV size',             'deg',        False,   False, lambda tp: tp.Theta_fov_total/c.degree),
-    ('Output FoV size',            'deg',        False,   False, lambda tp: tp.Theta_fov_out/c.degree),
-    ('PSF size',                   'arcs',       False,   False, lambda tp: tp.Theta_beam/c.arcsecond,),
-    ('Pixel size',                 'arcs',       False,   False, lambda tp: tp.Theta_pix/c.arcsecond),
-    ('Facet side length',          'pixels',     True,    False, lambda tp: tp.Npix_linear        ),
-    ('Image side length',          'pixels',     True,    False, lambda tp: tp.Npix_linear_fov_total),
-    ('Output image side length',   'pixels',     True,    False, lambda tp: tp.Npix_linear_out    ),
-    ('Grid side dimension',        'lambda',     True,    False, lambda tp: tp.Lambda_grid        ),
-    ('Baselines dimension',        'lambda',     True,    False, lambda tp: tp.Lambda_bl          ),
-    ('Epsilon (approx)',           '',           False,   False, lambda tp: tp.epsilon_f_approx   ),
-    ('Qbw',                        '',           False,   False, lambda tp: tp.Qbw                ),
-    ('Max subband ratio',          '',           False,   False, lambda tp: tp.max_subband_freq_ratio),
-    ('Number subbands',            '',           False,   False, lambda tp: tp.Nsubbands          ),
-    ('Station/antenna diameter',   '',           False,   False, lambda tp: tp.Ds                 ),
-
-    ('-- Time Coalescing --',      '',           False,   False, lambda tp: ''                    ),
-    ('Ionospheric timescale',      's',          False,   False, lambda tp: tp.Tion               ),
-    ('Coalesce time full',         's',          False,   False, lambda tp: tp.Tcoal_skipper      ),
-    ('Coalesce time pred',         's',          False,   False, lambda tp: tp.Tcoal_predict      ),
-    ('Coalesce time bw',           's',          False,   False, lambda tp: tp.Tcoal_backward     ),
-    ('Combined samples full',      '',           False,   False, lambda tp: tp.combine_time_samples),
-    ('Combined samples facet',     '',           False,   False, lambda tp: tp.combine_time_samples_facet),
-    ('Kernel time pred',           's',          False,   False, lambda tp: tp.Tkernel_predict    ),
-    ('Kernel time backward',       's',          False,   False, lambda tp: tp.Tkernel_backward   ),
-    ('Visibilities kernel pred',   '',           False,   False, lambda tp: tp.Nvis_gcf_predict   ),
-    ('Visibilities kernel bw',     '',           False,   False, lambda tp: tp.Nvis_gcf_backward  ),
-    ('Oversampling used pred',     '',           False,   False, lambda tp: tp.Ngcf_used_predict  ),
-    ('Oversampling used bw',       '',           False,   False, lambda tp: tp.Ngcf_used_backward ),
-
-    ('-- Channelization --',       '',           False,   False, lambda tp: ''                    ),
-    ('Channels predict, no-smear', '',           False,   False, lambda tp: tp.Nf_no_smear_predict),
-    ('Channels backward, no-smear','',           False,   False, lambda tp: tp.Nf_no_smear_backward),
-    ('Frequencies predict ifft',   '',           False,   False, lambda tp: tp.Nf_FFT_predict     ),
-    ('Frequencies predict kernels','',           False,   False, lambda tp: tp.Nf_gcf_predict     ),
-    ('Frequencies predict de-grid','',           False,   False, lambda tp: tp.Nf_vis_predict     ),
-    ('Frequencies total',          '',           False,   False, lambda tp: tp.Nf_vis             ),
-    ('Frequencies backward kernels','',          False,   False, lambda tp: tp.Nf_gcf_backward    ),
-    ('Frequencies backward grid',  '',           False,   False, lambda tp: tp.Nf_vis_backward    ),
-    ('Frequencies backward fft',   '',           False,   False, lambda tp: tp.Nf_FFT_backward    ),
-    ('Channels out',               '',           False,   False, lambda tp: tp.Nf_out             ),
-
-    ('-- Visibility --',           '',           False,   False, lambda tp: ''                    ),
-    ('Ingest rate',                'M/s',        False,   False, lambda tp: tp.Rvis_ingest / c.mega),
-    ('Averaged rate',              'M/s',        False,   False, lambda tp: tp.Rvis / c.mega      ),
-    ('Predict rate',               'M/s',        False,   False, lambda tp: tp.Rvis_predict  / c.mega),
-    ('Backward rate',              'M/s',        False,   False, lambda tp: tp.Rvis_backward  / c.mega),
-
-    ('-- Kernel Sizes --',         '',           False,   False, lambda tp: ''                    ),
-    ('Delta W earth',              'lambda',     False,   False, lambda tp: tp.DeltaW_Earth       ),
-    ('Delta W snapshot',           'lambda',     False,   False, lambda tp: tp.DeltaW_SShot       ),
-    ('Delta W max',                'lambda',     False,   False, lambda tp: tp.DeltaW_max         ),
-    ('Delta W stack',              'lambda',     False,   False, lambda tp: tp.DeltaW_stack       ),
-    ('Delta W theory',             'lambda',     False,   False, lambda tp: 1/(1-max(0,1-2*tp.Theta_fov**2)**0.5)),
-
-    ('-- Kernel Sizes --',         '',           False,   False, lambda tp: ''                    ),
-    ('W kernel support pred',      'uv-pixels',  False,   False, lambda tp: tp.Ngw_predict        ),
-    ('AW kernel support pred',     'uv-pixels',  False,   False, lambda tp: tp.Nkernel_AW_predict ),
-    ('W kernel support bw',        'uv-pixels',  False,   False, lambda tp: tp.Ngw_backward       ),
-    ('AW kernel support bw',       'uv-pixels',  False,   False, lambda tp: tp.Nkernel_AW_backward),
-
-    ('-- Data --',                 '',           True,    False, lambda tp: ''                    ),
-    ('Snapshot vis size',          'GB',         True,    True,  lambda tp: tp.Msnap / c.giga     ),
-    ('Facet size',                 'GB',         True,    False, lambda tp: tp.Mfacet / c.giga    ),
-    ('Image size',                 'GB',         True,    False, lambda tp: tp.Mimage / c.giga    ),
-    ('Image cube size',            'GB',         True,    False, lambda tp: tp.Mimage_cube / c.giga),
-    ('Calibration output',         'GB',         True,    False, lambda tp: tp.Mcal_out / c.giga  ),
-
-    ('Calibration process interval','s',         True,    False, lambda tp: tp.Tsolve             ),
-    ('Calibration process in',     'MB',         True,    False, lambda tp: tp.Mcal_solve_in / c.mega),
-    ('Calibration process out',    'MB',         True,    False, lambda tp: tp.Mcal_solve_out / c.mega),
-
-    ('Cleaning memory',            'PetaBytes',  True,    True,  lambda tp: tp.M_MSMFS/c.peta     ),
-    ('Working (cache) memory',     'TeraBytes',  True,    True,  lambda tp: tp.Mw_cache/c.tera    ),
-    ('-- I/O --',                  '',           True,    False, lambda tp: ''                    ),
-    ('Input Buffer Size',          'PetaBytes',  True,    True,  lambda tp: tp.Minput/c.peta      ),
-    ('Total buffer ingest rate',   'TeraBytes/s',True,    False, lambda tp: tp.Rvis_ingest*tp.Nbeam*tp.Npp*tp.Mvis/c.tera),
-    #('Rosies buffer size',   'PetaBytes',       True,       False, lambda tp: tp.Tobs*tp.buffer_factor*tp.Rvis_ingest*tp.Nbeam*tp.Npp*tp.Mvis/c.peta),
-    ('Output size',                'TB',         True,    True,  lambda tp: tp.Mout / c.tera      ),
-
-    ('-> ',                        'TeraBytes',  True,    True,  lambda tp: tp.get_products('Mwcache', scale=c.tera)),
-    ('Buffer Read Rate',           'TeraBytes/s',True,    True,  lambda tp: tp.Rio/c.tera         ),
-    ('Facet visibility rate',      'TeraBytes/s',True,    False, lambda tp: tp.Rfacet_vis/c.tera  ),
-    ('Image Write Rate',           'TeraBytes/s',True,    True,  lambda tp: tp.Rimage/c.tera      ),
-
-    #('Inter-Facet I/O Rate',       'TeraBytes/s',True,    True,  lambda tp: tp.Rinterfacet/c.tera ),
-    #('-> ',                        'TeraBytes/s',True,    True,  lambda tp: tp.get_products('Rinterfacet', scale=c.tera)),
-
-    ('-- Compute --',              '',           True,    False, lambda tp: ''                    ),
-    ('Total Compute Requirement',  'PetaFLOP/s', True,    True,  lambda tp: tp.Rflop/c.peta       ),
-    ('-> ',                        'PetaFLOP/s', True,    True,  lambda tp: tp.get_products('Rflop', scale=c.peta)),
+    ("-- Parameters --", "", True, False, lambda tp: ""),
+    ("Observation Name", "", True, False, lambda tp: tp.name),
+    ("Telescope", "", True, False, lambda tp: tp.telescope),
+    (
+        "Band",
+        "",
+        True,
+        False,
+        lambda tp: str(tp.band) if tp.band is not None else "",
+    ),
+    ("Frequency Min", "GHz", False, False, lambda tp: tp.freq_min / c.giga),
+    ("Frequency Max", "GHz", False, False, lambda tp: tp.freq_max / c.giga),
+    ("Pipeline", "", True, False, lambda tp: str(tp.pipeline)),
+    ("Baseline coalescing", "", True, False, lambda tp: tp.blcoal),
+    ("On-the-fly kernels", "", True, False, lambda tp: tp.on_the_fly),
+    (
+        "Scale predict by facet",
+        "",
+        True,
+        False,
+        lambda tp: tp.scale_predict_by_facet,
+    ),
+    ("Max # of channels", "", True, False, lambda tp: tp.Nf_max),
+    ("Max Baseline", "km", True, False, lambda tp: tp.Bmax / c.kilo),
+    ("Dump time", "s", False, False, lambda tp: tp.Tint_used),
+    ("Observation Time", "s", False, False, lambda tp: tp.Tobs),
+    ("Pointing Time", "s", False, False, lambda tp: tp.Tpoint),
+    ("Total Time", "s", False, False, lambda tp: tp.Texp),
+    ("Snapshot Time", "s", True, False, lambda tp: tp.Tsnap),
+    ("Facets", "", True, False, lambda tp: tp.Nfacet),
+    ("w-stacking planes", "", True, False, lambda tp: tp.Nwstack),
+    (
+        "w-stacking planes predict",
+        "",
+        True,
+        False,
+        lambda tp: tp.Nwstack_predict,
+    ),
+    ("Stations/antennas", "", False, False, lambda tp: tp.Na),
+    (
+        "Max Baseline [per bin]",
+        "km",
+        False,
+        False,
+        lambda tp: [bin["b"] / c.kilo for bin in tp.baseline_bins],
+    ),
+    (
+        "Baseline fraction [per bin]",
+        "%",
+        False,
+        False,
+        lambda tp: [100 * bin["bfrac"] for bin in tp.baseline_bins],
+    ),
+    ("-- Image --", "", True, False, lambda tp: ""),
+    (
+        "Facet FoV size",
+        "deg",
+        False,
+        False,
+        lambda tp: tp.Theta_fov / c.degree,
+    ),
+    (
+        "Total FoV size",
+        "deg",
+        False,
+        False,
+        lambda tp: tp.Theta_fov_total / c.degree,
+    ),
+    (
+        "Output FoV size",
+        "deg",
+        False,
+        False,
+        lambda tp: tp.Theta_fov_out / c.degree,
+    ),
+    (
+        "PSF size",
+        "arcs",
+        False,
+        False,
+        lambda tp: tp.Theta_beam / c.arcsecond,
+    ),
+    (
+        "Pixel size",
+        "arcs",
+        False,
+        False,
+        lambda tp: tp.Theta_pix / c.arcsecond,
+    ),
+    ("Facet side length", "pixels", True, False, lambda tp: tp.Npix_linear),
+    (
+        "Image side length",
+        "pixels",
+        True,
+        False,
+        lambda tp: tp.Npix_linear_fov_total,
+    ),
+    (
+        "Output image side length",
+        "pixels",
+        True,
+        False,
+        lambda tp: tp.Npix_linear_out,
+    ),
+    ("Grid side dimension", "lambda", True, False, lambda tp: tp.Lambda_grid),
+    ("Baselines dimension", "lambda", True, False, lambda tp: tp.Lambda_bl),
+    ("Epsilon (approx)", "", False, False, lambda tp: tp.epsilon_f_approx),
+    ("Qbw", "", False, False, lambda tp: tp.Qbw),
+    (
+        "Max subband ratio",
+        "",
+        False,
+        False,
+        lambda tp: tp.max_subband_freq_ratio,
+    ),
+    ("Number subbands", "", False, False, lambda tp: tp.Nsubbands),
+    ("Station/antenna diameter", "", False, False, lambda tp: tp.Ds),
+    ("-- Time Coalescing --", "", False, False, lambda tp: ""),
+    ("Ionospheric timescale", "s", False, False, lambda tp: tp.Tion),
+    ("Coalesce time full", "s", False, False, lambda tp: tp.Tcoal_skipper),
+    ("Coalesce time pred", "s", False, False, lambda tp: tp.Tcoal_predict),
+    ("Coalesce time bw", "s", False, False, lambda tp: tp.Tcoal_backward),
+    (
+        "Combined samples full",
+        "",
+        False,
+        False,
+        lambda tp: tp.combine_time_samples,
+    ),
+    (
+        "Combined samples facet",
+        "",
+        False,
+        False,
+        lambda tp: tp.combine_time_samples_facet,
+    ),
+    ("Kernel time pred", "s", False, False, lambda tp: tp.Tkernel_predict),
+    (
+        "Kernel time backward",
+        "s",
+        False,
+        False,
+        lambda tp: tp.Tkernel_backward,
+    ),
+    (
+        "Visibilities kernel pred",
+        "",
+        False,
+        False,
+        lambda tp: tp.Nvis_gcf_predict,
+    ),
+    (
+        "Visibilities kernel bw",
+        "",
+        False,
+        False,
+        lambda tp: tp.Nvis_gcf_backward,
+    ),
+    (
+        "Oversampling used pred",
+        "",
+        False,
+        False,
+        lambda tp: tp.Ngcf_used_predict,
+    ),
+    (
+        "Oversampling used bw",
+        "",
+        False,
+        False,
+        lambda tp: tp.Ngcf_used_backward,
+    ),
+    ("-- Channelization --", "", False, False, lambda tp: ""),
+    (
+        "Channels predict, no-smear",
+        "",
+        False,
+        False,
+        lambda tp: tp.Nf_no_smear_predict,
+    ),
+    (
+        "Channels backward, no-smear",
+        "",
+        False,
+        False,
+        lambda tp: tp.Nf_no_smear_backward,
+    ),
+    (
+        "Frequencies predict ifft",
+        "",
+        False,
+        False,
+        lambda tp: tp.Nf_FFT_predict,
+    ),
+    (
+        "Frequencies predict kernels",
+        "",
+        False,
+        False,
+        lambda tp: tp.Nf_gcf_predict,
+    ),
+    (
+        "Frequencies predict de-grid",
+        "",
+        False,
+        False,
+        lambda tp: tp.Nf_vis_predict,
+    ),
+    ("Frequencies total", "", False, False, lambda tp: tp.Nf_vis),
+    (
+        "Frequencies backward kernels",
+        "",
+        False,
+        False,
+        lambda tp: tp.Nf_gcf_backward,
+    ),
+    (
+        "Frequencies backward grid",
+        "",
+        False,
+        False,
+        lambda tp: tp.Nf_vis_backward,
+    ),
+    (
+        "Frequencies backward fft",
+        "",
+        False,
+        False,
+        lambda tp: tp.Nf_FFT_backward,
+    ),
+    ("Channels out", "", False, False, lambda tp: tp.Nf_out),
+    ("-- Visibility --", "", False, False, lambda tp: ""),
+    ("Ingest rate", "M/s", False, False, lambda tp: tp.Rvis_ingest / c.mega),
+    ("Averaged rate", "M/s", False, False, lambda tp: tp.Rvis / c.mega),
+    ("Predict rate", "M/s", False, False, lambda tp: tp.Rvis_predict / c.mega),
+    (
+        "Backward rate",
+        "M/s",
+        False,
+        False,
+        lambda tp: tp.Rvis_backward / c.mega,
+    ),
+    ("-- Kernel Sizes --", "", False, False, lambda tp: ""),
+    ("Delta W earth", "lambda", False, False, lambda tp: tp.DeltaW_Earth),
+    ("Delta W snapshot", "lambda", False, False, lambda tp: tp.DeltaW_SShot),
+    ("Delta W max", "lambda", False, False, lambda tp: tp.DeltaW_max),
+    ("Delta W stack", "lambda", False, False, lambda tp: tp.DeltaW_stack),
+    (
+        "Delta W theory",
+        "lambda",
+        False,
+        False,
+        lambda tp: 1 / (1 - max(0, 1 - 2 * tp.Theta_fov**2) ** 0.5),
+    ),
+    ("-- Kernel Sizes --", "", False, False, lambda tp: ""),
+    (
+        "W kernel support pred",
+        "uv-pixels",
+        False,
+        False,
+        lambda tp: tp.Ngw_predict,
+    ),
+    (
+        "AW kernel support pred",
+        "uv-pixels",
+        False,
+        False,
+        lambda tp: tp.Nkernel_AW_predict,
+    ),
+    (
+        "W kernel support bw",
+        "uv-pixels",
+        False,
+        False,
+        lambda tp: tp.Ngw_backward,
+    ),
+    (
+        "AW kernel support bw",
+        "uv-pixels",
+        False,
+        False,
+        lambda tp: tp.Nkernel_AW_backward,
+    ),
+    ("-- Data --", "", True, False, lambda tp: ""),
+    ("Snapshot vis size", "GB", True, True, lambda tp: tp.Msnap / c.giga),
+    ("Facet size", "GB", True, False, lambda tp: tp.Mfacet / c.giga),
+    ("Image size", "GB", True, False, lambda tp: tp.Mimage / c.giga),
+    ("Image cube size", "GB", True, False, lambda tp: tp.Mimage_cube / c.giga),
+    ("Calibration output", "GB", True, False, lambda tp: tp.Mcal_out / c.giga),
+    ("Calibration process interval", "s", True, False, lambda tp: tp.Tsolve),
+    (
+        "Calibration process in",
+        "MB",
+        True,
+        False,
+        lambda tp: tp.Mcal_solve_in / c.mega,
+    ),
+    (
+        "Calibration process out",
+        "MB",
+        True,
+        False,
+        lambda tp: tp.Mcal_solve_out / c.mega,
+    ),
+    (
+        "Cleaning memory",
+        "PetaBytes",
+        True,
+        True,
+        lambda tp: tp.M_MSMFS / c.peta,
+    ),
+    (
+        "Working (cache) memory",
+        "TeraBytes",
+        True,
+        True,
+        lambda tp: tp.Mw_cache / c.tera,
+    ),
+    ("-- I/O --", "", True, False, lambda tp: ""),
+    (
+        "Input Buffer Size",
+        "PetaBytes",
+        True,
+        True,
+        lambda tp: tp.Minput / c.peta,
+    ),
+    (
+        "Total buffer ingest rate",
+        "TeraBytes/s",
+        True,
+        False,
+        lambda tp: tp.Rvis_ingest * tp.Nbeam * tp.Npp * tp.Mvis / c.tera,
+    ),
+    # ('Rosies buffer size',   'PetaBytes',       True,       False, lambda tp: tp.Tobs*tp.buffer_factor*tp.Rvis_ingest*tp.Nbeam*tp.Npp*tp.Mvis/c.peta),
+    ("Output size", "TB", True, True, lambda tp: tp.Mout / c.tera),
+    (
+        "-> ",
+        "TeraBytes",
+        True,
+        True,
+        lambda tp: tp.get_products("Mwcache", scale=c.tera),
+    ),
+    (
+        "Buffer Read Rate",
+        "TeraBytes/s",
+        True,
+        True,
+        lambda tp: tp.Rio / c.tera,
+    ),
+    (
+        "Facet visibility rate",
+        "TeraBytes/s",
+        True,
+        False,
+        lambda tp: tp.Rfacet_vis / c.tera,
+    ),
+    (
+        "Image Write Rate",
+        "TeraBytes/s",
+        True,
+        True,
+        lambda tp: tp.Rimage / c.tera,
+    ),
+    # ('Inter-Facet I/O Rate',       'TeraBytes/s',True,    True,  lambda tp: tp.Rinterfacet/c.tera ),
+    # ('-> ',                        'TeraBytes/s',True,    True,  lambda tp: tp.get_products('Rinterfacet', scale=c.tera)),
+    ("-- Compute --", "", True, False, lambda tp: ""),
+    (
+        "Total Compute Requirement",
+        "PetaFLOP/s",
+        True,
+        True,
+        lambda tp: tp.Rflop / c.peta,
+    ),
+    (
+        "-> ",
+        "PetaFLOP/s",
+        True,
+        True,
+        lambda tp: tp.get_products("Rflop", scale=c.peta),
+    ),
 ]
 
 
@@ -159,9 +432,9 @@ def get_toggles(opts, *args, **kwargs):
     return ToggleButtons(options=opts, *args, **kwargs)
 
 
-def get_adjusts(placeholder='e.g. blcoal=False Bmax=40*1000 Nsource=100'):
+def get_adjusts(placeholder="e.g. blcoal=False Bmax=40*1000 Nsource=100"):
     """Creates text widget for adjustments."""
-    return Text(placeholder=placeholder, layout=Layout(width='95%'))
+    return Text(placeholder=placeholder, layout=Layout(width="95%"))
 
 
 class CompareTelescopes:
@@ -191,19 +464,20 @@ class CompareTelescopes:
         verbose (optional, str): verbosity of output.
         save_filename (optional, str/Path): file path for saving plot as a PDF.
     """
+
     def __init__(
-            self,
-            telescope_1: str='SKA1_Low',
-            band_1: str='Low',
-            pipeline_1: str='DPrepA',
-            telescope_2: str='SKA1_Low',
-            band_2: str='Low',
-            pipeline_2: str='DPrepA',
-            adjusts_1: str='',
-            adjusts_2: str='',
-            verbose: str='Overview',
-            save_filename: Optional[Union[str, Path]]=None,
-            ):
+        self,
+        telescope_1: str = "SKA1_Low",
+        band_1: str = "Low",
+        pipeline_1: str = "DPrepA",
+        telescope_2: str = "SKA1_Low",
+        band_2: str = "Low",
+        pipeline_2: str = "DPrepA",
+        adjusts_1: str = "",
+        adjusts_2: str = "",
+        verbose: str = "Overview",
+        save_filename: Optional[Union[str, Path]] = None,
+    ):
         self.telescope_1 = telescope_1
         self.band_1 = band_1
         self.pipeline_1 = pipeline_1
@@ -228,20 +502,24 @@ class CompareTelescopes:
         try:
             path = Path(self.save_filename)
             if not path.parent.exists():
-                raise ValueError(f"save_filename attribute parent path '{path.parent}' does not exist.")
-            if path.suffix.lower() != '.pdf':
-                raise ValueError(f"save_filename attribute '{self.save_filename}' does not have a PDF extension.")
+                raise ValueError(
+                    f"save_filename attribute parent path '{path.parent}' does not exist."
+                )
+            if path.suffix.lower() != ".pdf":
+                raise ValueError(
+                    f"save_filename attribute '{self.save_filename}' does not have a PDF extension."
+                )
         except (ValueError, TypeError):
-            raise ValueError(f"save_filename attribute '{self.save_filename}' is not a valid path.")
+            raise ValueError(
+                f"save_filename attribute '{self.save_filename}' is not a valid path."
+            )
 
     def _validate_attributes(self):
         self._check_attribute_in_set(
             self.telescope_1, "telescope_1", Telescopes.available_teles
         )
         self._check_attribute_in_set(
-            self.band_1,
-            "band_1",
-            Bands.telescope_bands[self.telescope_1]
+            self.band_1, "band_1", Bands.telescope_bands[self.telescope_1]
         )
         self._check_attribute_in_set(
             self.pipeline_1, "pipeline_1", Pipelines.available_pipelines
@@ -250,18 +528,16 @@ class CompareTelescopes:
             self.telescope_2, "telescope_2", Telescopes.available_teles
         )
         self._check_attribute_in_set(
-            self.band_2,
-            "band_2",
-            Bands.telescope_bands[self.telescope_2]
+            self.band_2, "band_2", Bands.telescope_bands[self.telescope_2]
         )
         self._check_attribute_in_set(
             self.pipeline_2, "pipeline_2", Pipelines.available_pipelines
         )
         self._valid_save_filename()
 
-    def run(self, interactive: bool=True) -> None:
+    def run(self, interactive: bool = True) -> None:
         """Compares the telescopes.
-        
+
         Args:
             interactive (bool): if True, interactive widgets are shown to select the values.
         """
@@ -327,29 +603,30 @@ class Observation:
         num_bins (int): The number of histogram bins used if using a custom array. Ignored if use_yaml==False.
         verbose (str): Verbosity of output.
     """
+
     def __init__(
-            self,
-            use_yaml: bool=False,
-            telescope=None,
-            band=None,
-            pipeline=None,
-            hpso=None,
-            adjusts: str='',
-            yaml_path: Optional[Union[str, Path]]=None,
-            verbose: str='Overview',
-            ):
+        self,
+        use_yaml: bool = False,
+        telescope=None,
+        band=None,
+        pipeline=None,
+        hpso=None,
+        adjusts: str = "",
+        yaml_path: Optional[Union[str, Path]] = None,
+        verbose: str = "Overview",
+    ):
         self.verbose = verbose
         self.use_yaml = use_yaml
         self.pipeline_config = PipelineConfig(
-                                                use_yaml=use_yaml, 
-                                                yaml_path=yaml_path, 
-                                                telescope=telescope,
-                                                band=band,
-                                                pipeline=pipeline,
-                                                hpso=hpso,
-                                                adjusts=adjusts,
-                                                )
-            
+            use_yaml=use_yaml,
+            yaml_path=yaml_path,
+            telescope=telescope,
+            band=band,
+            pipeline=pipeline,
+            hpso=hpso,
+            adjusts=adjusts,
+        )
+
         self._validate_attributes()
 
     def _check_attribute_in_set(self, attribute, attribute_name, valid_set):
@@ -360,20 +637,18 @@ class Observation:
 
     def _validate_attributes(self):
         cfg = self.pipeline_config
-        
+
         # Set by HPSO, always required
         self._check_attribute_in_set(
             cfg.telescope, "telescope", Telescopes.available_teles
         )
-        
+
         # Required only for yaml file. Not set for HPSO
         if self.use_yaml:
             self._check_attribute_in_set(
-                cfg.band,
-                "band",
-                Bands.telescope_bands[cfg.telescope]
+                cfg.band, "band", Bands.telescope_bands[cfg.telescope]
             )
-        
+
         # Pipeline always required
         self._check_attribute_in_set(
             cfg.pipeline, "pipeline", Pipelines.available_pipelines
@@ -383,34 +658,49 @@ class Observation:
         """Computes the results then displays them in a table."""
         # Make pipeline configuration then check it.
         display(HTML('<font color="blue">Evaluating...</font>'))
-        if not check_pipeline_config(self.pipeline_config, pure_pipelines=self.use_yaml):
+        if not check_pipeline_config(
+            self.pipeline_config, pure_pipelines=self.use_yaml
+        ):
             return
 
         # Determine which rows to calculate.
-        result_map, result_titles, result_units = mk_result_map_rows(self.verbose)
+        result_map, result_titles, result_units = mk_result_map_rows(
+            self.verbose
+        )
 
         # Compute results.
-        detailed = (self.verbose=='Debug')
-        result_values = _compute_results(self.pipeline_config, result_map, detailed, detailed)
-        display(HTML('<font color="blue">Done computing. Results follow:</font>'))
+        detailed = self.verbose == "Debug"
+        result_values = _compute_results(
+            self.pipeline_config, result_map, detailed, detailed
+        )
+        display(
+            HTML('<font color="blue">Done computing. Results follow:</font>')
+        )
 
         # Show table of results.
-        show_table('Computed Values', result_titles, result_values, result_units)
+        show_table(
+            "Computed Values", result_titles, result_values, result_units
+        )
 
     def get_config_params(self):
         return (self.telescope, self.pipeline, self.band, self.adjusts)
+
 
 def make_band_toggles():
     """Create connected telescope/band toggle widgets that only allow
     selection of valid combinations"""
 
     def _update_toggles(*_args):
-        band_toggles.options = tuple(sorted(Bands.telescope_bands[telescope_toggles.value]))
+        band_toggles.options = tuple(
+            sorted(Bands.telescope_bands[telescope_toggles.value])
+        )
 
-    telescope_toggles = get_toggles(sorted(Telescopes.available_teles)) #, description="telescope1")
+    telescope_toggles = get_toggles(
+        sorted(Telescopes.available_teles)
+    )  # , description="telescope1")
     band_toggles = get_toggles(sorted(Bands.available_bands))
     _update_toggles()
-    telescope_toggles.observe(_update_toggles, 'value')
+    telescope_toggles.observe(_update_toggles, "value")
     return telescope_toggles, band_toggles
 
 
@@ -419,10 +709,16 @@ def make_hpso_pipeline_toggles():
     of valid combinations"""
     hpso_toggles = get_toggles(sorted(HPSOs.available_hpsos))
     pipeline_toggles = get_toggles(sorted(Pipelines.available_pipelines))
+
     def update_pipeline_toggles(*_args):
-        pipeline_toggles.options = tuple(sorted(HPSOs.hpso_pipelines[hpso_toggles.value]))
-    update_pipeline_toggles(); hpso_toggles.observe(update_pipeline_toggles, 'value')
+        pipeline_toggles.options = tuple(
+            sorted(HPSOs.hpso_pipelines[hpso_toggles.value])
+        )
+
+    update_pipeline_toggles()
+    hpso_toggles.observe(update_pipeline_toggles, "value")
     return hpso_toggles, pipeline_toggles
+
 
 def get_result_sum(resultMap):
     """
@@ -442,14 +738,17 @@ def get_result_expressions(resultMap, tp):
     :param tp:
     :returns:
     """
+
     def expr(row):
         try:
             return row[4](tp)
         except AttributeError:
             return "(undefined)"
+
     return list(map(expr, resultMap))
 
-def mk_result_map_rows(verbosity = 'Overview'):
+
+def mk_result_map_rows(verbosity="Overview"):
     """
     Collects result map information for a given row set
 
@@ -458,14 +757,16 @@ def mk_result_map_rows(verbosity = 'Overview'):
        names and a list of the row units.
     """
 
-    if verbosity == 'Overview':
+    if verbosity == "Overview":
         result_map = list(filter(lambda row: row[2], RESULT_MAP))
     else:
         result_map = RESULT_MAP
 
-    return (result_map,
-            list(map(lambda row: row[0], result_map)),
-            list(map(lambda row: row[1], result_map)))
+    return (
+        result_map,
+        list(map(lambda row: row[0], result_map)),
+        list(map(lambda row: row[1], result_map)),
+    )
 
 
 def default_rflop_plotting_colours(rows):
@@ -476,11 +777,29 @@ def default_rflop_plotting_colours(rows):
     """
 
     # Stolen from D3's category20
-    cat20 = ['#1f77b4', '#aec7e8', '#ff7f0e', '#ffbb78', '#2ca02c',
-             '#98df8a', '#d62728', '#ff9896', '#9467bd', '#c5b0d5',
-             '#8c564b', '#c49c94', '#e377c2', '#f7b6d2', '#7f7f7f',
-             '#c7c7c7', '#bcbd22', '#dbdb8d', '#17becf', '#9edae5']
-    return (cat20 + cat20)[:len(rows)]
+    cat20 = [
+        "#1f77b4",
+        "#aec7e8",
+        "#ff7f0e",
+        "#ffbb78",
+        "#2ca02c",
+        "#98df8a",
+        "#d62728",
+        "#ff9896",
+        "#9467bd",
+        "#c5b0d5",
+        "#8c564b",
+        "#c49c94",
+        "#e377c2",
+        "#f7b6d2",
+        "#7f7f7f",
+        "#c7c7c7",
+        "#bcbd22",
+        "#dbdb8d",
+        "#17becf",
+        "#9edae5",
+    ]
+    return (cat20 + cat20)[: len(rows)]
 
 
 def format_result(value):
@@ -498,38 +817,41 @@ def format_result(value):
             pass
     # Floating point values up to 4 digits
     if isinstance(value, float):
-        return min(['%.4g' % value, '%.5g' % value], key=len)
+        return min(["%.4g" % value, "%.5g" % value], key=len)
     # Lists: Apply formating recursively
     if isinstance(value, list):
-        s = '['
+        s = "["
         for v in value:
-            if len(s) > 1: s += ', '
+            if len(s) > 1:
+                s += ", "
             s += format_result(v)
-        return s + ']'
+        return s + "]"
     # Otherwise: Trust default formatting
-    return '%s' % value
+    return "%s" % value
 
 
-def format_result_cell(val, color='black', colspan=1, typ='td'):
+def format_result_cell(val, color="black", colspan=1, typ="td"):
     """
     Format a result value for inclusing in a table.
     """
-    return '<%s colspan="%d" style="text-align:left"><font color="%s">%s</font></%s>' % (
-        typ, colspan, color, format_result(val), typ)
+    return (
+        '<%s colspan="%d" style="text-align:left"><font color="%s">%s</font></%s>'
+        % (typ, colspan, color, format_result(val), typ)
+    )
 
 
-def format_result_cells(val, color='black', max_cols=1):
+def format_result_cells(val, color="black", max_cols=1):
     """
     Format a result value for inclusing in a table. If the value is a
     list, we genrate multiple cells up to "max_cells".
     """
 
-    row_html = ''
+    row_html = ""
     if type(val) == list and len(val) <= max_cols:
         for v in val:
             row_html += format_result_cell(v, color, 1)
         if len(val) < max_cols:
-            row_html += format_result_cell('', color, max_cols-len(val))
+            row_html += format_result_cell("", color, max_cols - len(val))
     else:
         row_html += format_result_cell(val, color, max_cols)
     return row_html
@@ -546,28 +868,34 @@ def show_table(title, labels, values, units, docs=None):
     :param docs: Optional documentation per row
     :returns:
     """
-    s = '<h3>%s:</h3><table>\n' % title
+    s = "<h3>%s:</h3><table>\n" % title
     assert len(labels) == len(values)
     assert len(labels) == len(units)
     max_cols = max([1] + [len(v) for v in values if type(v) == list])
-    extra_cols = (2 if docs is None else 3)
+    extra_cols = 2 if docs is None else 3
     for i in range(len(labels)):
-        if labels[i].startswith('--'):
-            s += '<tr>%s</tr>' % format_result_cell(labels[i], colspan=max_cols+extra_cols, typ='th')
+        if labels[i].startswith("--"):
+            s += "<tr>%s</tr>" % format_result_cell(
+                labels[i], colspan=max_cols + extra_cols, typ="th"
+            )
             continue
+
         def row(label, val):
-            row_html = '<tr><td>%s</td>' % label
-            row_html += format_result_cells(val, color='blue', max_cols=max_cols)
+            row_html = "<tr><td>%s</td>" % label
+            row_html += format_result_cells(
+                val, color="blue", max_cols=max_cols
+            )
             row_html += '<td style="text-align:left">%s</td>' % units[i]
             if docs is not None:
                 row_html += '<td style="text-align:left">%s</td>' % docs[i]
-            return row_html + '</tr>\n'
+            return row_html + "</tr>\n"
+
         if not isinstance(values[i], dict):
             s += row(labels[i], values[i])
         else:
             for name in sorted(values[i].keys()):
                 s += row(labels[i] + name, values[i][name])
-    s += '</table>'
+    s += "</table>"
     display(HTML(s))
 
 
@@ -582,32 +910,47 @@ def show_table_compare(title, labels, values_1, values_2, units):
     :param units:
     :returns:
     """
-    s = '<h4>%s:</h4><table>\n' % title
+    s = "<h4>%s:</h4><table>\n" % title
     assert len(labels) == len(values_1)
     assert len(labels) == len(values_2)
     assert len(labels) == len(units)
 
-    max_cols = max([1] + [len(v) for v in values_1+values_2 if type(v) == list])
+    max_cols = max(
+        [1] + [len(v) for v in values_1 + values_2 if type(v) == list]
+    )
 
     for i in range(len(labels)):
-        if labels[i].startswith('--'):
-            s += '<tr>%s</tr>' % format_result_cell(labels[i], colspan=2*max_cols+2, typ='th')
+        if labels[i].startswith("--"):
+            s += "<tr>%s</tr>" % format_result_cell(
+                labels[i], colspan=2 * max_cols + 2, typ="th"
+            )
             continue
+
         def row(label, val1, val2):
-            row_html = '<tr><td>%s</td>' % label
-            row_html += format_result_cells(val1, color='darkcyan', max_cols=max_cols)
-            row_html += format_result_cells(val2, color='blue', max_cols=max_cols)
+            row_html = "<tr><td>%s</td>" % label
+            row_html += format_result_cells(
+                val1, color="darkcyan", max_cols=max_cols
+            )
+            row_html += format_result_cells(
+                val2, color="blue", max_cols=max_cols
+            )
             row_html += '<td style="text-align:left">%s</td></tr>\n' % units[i]
             return row_html
-        if not isinstance(values_1[i], dict) and not isinstance(values_2[i], dict):
+
+        if not isinstance(values_1[i], dict) and not isinstance(
+            values_2[i], dict
+        ):
             s += row(labels[i], values_1[i], values_2[i])
         else:
             for name in sorted(set(values_1[i]).union(values_2[i])):
-                s += row(labels[i] + name, values_1[i].get(name, 0), values_2[i].get(name, 0))
+                s += row(
+                    labels[i] + name,
+                    values_1[i].get(name, 0),
+                    values_2[i].get(name, 0),
+                )
 
-    s += '</table>'
+    s += "</table>"
     display(HTML(s))
-
 
 
 def plot_line_datapoints(title, x_values, y_values, xlabel=None, ylabel=None):
@@ -619,17 +962,30 @@ def plot_line_datapoints(title, x_values, y_values, xlabel=None, ylabel=None):
     :param y_values:
     :returns:
     """
-    pylab.rcParams['figure.figsize'] = 8, 6  # that's default image size for this interactive session
+    pylab.rcParams["figure.figsize"] = (
+        8,
+        6,
+    )  # that's default image size for this interactive session
     assert len(x_values) == len(y_values)
-    plt.plot(x_values, y_values, 'ro', x_values, y_values, 'b')
-    plt.title('%s\n' % title)
+    plt.plot(x_values, y_values, "ro", x_values, y_values, "b")
+    plt.title("%s\n" % title)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.ylim((0, max(y_values)))
     plt.show()
 
 
-def plot_2D_surface(title, x_values, y_values, z_values, contours=None, xlabel=None, ylabel=None, zlabel=None, nlevels=15):
+def plot_2D_surface(
+    title,
+    x_values,
+    y_values,
+    z_values,
+    contours=None,
+    xlabel=None,
+    ylabel=None,
+    zlabel=None,
+    nlevels=15,
+):
     """
     Plots a series of (x,y) values using a line and data-point visualization.
 
@@ -643,10 +999,13 @@ def plot_2D_surface(title, x_values, y_values, z_values, contours=None, xlabel=N
     :param xlabel:
     :returns:
     """
-    colourmap = 'coolwarm'  # options include: 'afmhot', 'coolwarm'
-    contour_colour = [(1., 0., 0., 1.)]  # red
+    colourmap = "coolwarm"  # options include: 'afmhot', 'coolwarm'
+    contour_colour = [(1.0, 0.0, 0.0, 1.0)]  # red
 
-    pylab.rcParams['figure.figsize'] = 8, 6  # that's default image size for this interactive session
+    pylab.rcParams["figure.figsize"] = (
+        8,
+        6,
+    )  # that's default image size for this interactive session
 
     sizex = len(x_values)
     sizey = len(y_values)
@@ -655,11 +1014,18 @@ def plot_2D_surface(title, x_values, y_values, z_values, contours=None, xlabel=N
     xx = np.tile(x_values, (sizey, 1))
     yy = np.transpose(np.tile(y_values, (sizex, 1)))
 
-    C = pylab.contourf(xx, yy, z_values, nlevels, alpha=.75, cmap=colourmap)
-    pylab.colorbar(shrink=.92)
+    C = pylab.contourf(xx, yy, z_values, nlevels, alpha=0.75, cmap=colourmap)
+    pylab.colorbar(shrink=0.92)
     if contours is not None:
-        C = pylab.contour(xx, yy, z_values, levels = contours, colors=contour_colour,
-                          linewidths=[2], linestyles='dashed')
+        C = pylab.contour(
+            xx,
+            yy,
+            z_values,
+            levels=contours,
+            colors=contour_colour,
+            linewidths=[2],
+            linestyles="dashed",
+        )
         plt.clabel(C, inline=1, fontsize=10)
 
     C.ax.set_xlabel(xlabel)
@@ -668,8 +1034,17 @@ def plot_2D_surface(title, x_values, y_values, z_values, contours=None, xlabel=N
     pylab.show()
 
 
-def plot_3D_surface(title, x_values, y_values, z_values,
-                    contours=None, xlabel=None, ylabel=None, zlabel=None, nlevels=15):
+def plot_3D_surface(
+    title,
+    x_values,
+    y_values,
+    z_values,
+    contours=None,
+    xlabel=None,
+    ylabel=None,
+    zlabel=None,
+    nlevels=15,
+):
     """
     Plots a series of (x,y) values using a line and data-point visualization.
 
@@ -684,9 +1059,12 @@ def plot_3D_surface(title, x_values, y_values, z_values,
     :returns:
     """
     colourmap = cm.coolwarm  # options include: 'afmhot', 'coolwarm'
-    contour_colour = [(1., 0., 0., 1.)]  # red
+    contour_colour = [(1.0, 0.0, 0.0, 1.0)]  # red
 
-    pylab.rcParams['figure.figsize'] = 8, 6  # that's default image size for this interactive session
+    pylab.rcParams["figure.figsize"] = (
+        8,
+        6,
+    )  # that's default image size for this interactive session
     assert len(x_values) == len(y_values)
 
     sizex = len(x_values)
@@ -697,13 +1075,31 @@ def plot_3D_surface(title, x_values, y_values, z_values,
     yy = np.transpose(np.tile(y_values, (sizex, 1)))
 
     fig = plt.figure()
-    ax = fig.gca(projection='3d')
-    surf = ax.plot_surface(xx, yy, z_values, rstride=1, cstride=1, cmap=colourmap, linewidth=0.2, alpha=0.6,
-                           antialiased=True, shade=True)
+    ax = fig.gca(projection="3d")
+    surf = ax.plot_surface(
+        xx,
+        yy,
+        z_values,
+        rstride=1,
+        cstride=1,
+        cmap=colourmap,
+        linewidth=0.2,
+        alpha=0.6,
+        antialiased=True,
+        shade=True,
+    )
     fig.colorbar(surf, shrink=0.5, aspect=5)
 
     if contours is not None:
-        cset = ax.contour(xx, yy, z_values, contours, zdir='z', linewidths = (2.0), colors=contour_colour)
+        cset = ax.contour(
+            xx,
+            yy,
+            z_values,
+            contours,
+            zdir="z",
+            linewidths=(2.0),
+            colors=contour_colour,
+        )
         plt.clabel(cset, inline=1, fontsize=10)
 
     ax.set_xlabel(xlabel)
@@ -730,16 +1126,26 @@ def plot_pie(title, labels, values, colours=None):
     # The values need to sum to one, for a pie plot. Let's enforce that.
     values_norm = values / np.linalg.norm(values)
 
-    pylab.rcParams['figure.figsize'] = 8, 6  # that's default image size for this interactive session
+    pylab.rcParams["figure.figsize"] = (
+        8,
+        6,
+    )  # that's default image size for this interactive session
 
     # The slices will be ordered and plotted counter-clockwise.
     explode = np.ones(nr_slices) * 0.05  # The radial offset of the slices
 
-    plt.pie(values_norm, explode=explode, labels=labels, colors=colours,
-            autopct='%1.1f%%', shadow=True, startangle=90)
+    plt.pie(
+        values_norm,
+        explode=explode,
+        labels=labels,
+        colors=colours,
+        autopct="%1.1f%%",
+        shadow=True,
+        startangle=90,
+    )
     # Set aspect ratio to be equal so that pie is drawn as a circle.
-    plt.axis('equal')
-    plt.title('%s\n' % title)
+    plt.axis("equal")
+    plt.title("%s\n" % title)
 
     plt.show()
 
@@ -765,23 +1171,40 @@ def save_pie(title, labels, values, filename, colours=None):
     # The values need to sum to one, for a pie plot. Let's enforce that.
     values_norm = values / np.linalg.norm(values)
 
-    pylab.rcParams['figure.figsize'] = 8, 6  # that's default image size for this interactive session
+    pylab.rcParams["figure.figsize"] = (
+        8,
+        6,
+    )  # that's default image size for this interactive session
 
     # The slices will be ordered and plotted counter-clockwise.
     explode = np.ones(nr_slices) * 0.05  # The radial offset of the slices
 
-    plt.pie(values_norm, explode=explode, labels=labels, colors=colours,
-            autopct='%1.1f%%', shadow=True, startangle=90)
+    plt.pie(
+        values_norm,
+        explode=explode,
+        labels=labels,
+        colors=colours,
+        autopct="%1.1f%%",
+        shadow=True,
+        startangle=90,
+    )
     # Set aspect ratio to be equal so that pie is drawn as a circle.
-    plt.axis('equal')
-    plt.title('%s\n' % title)
+    plt.axis("equal")
+    plt.title("%s\n" % title)
 
-    plt.savefig(filename, format='svg', dpi=1200)
+    plt.savefig(filename, format="svg", dpi=1200)
 
 
-def plot_stacked_bars(title, labels, value_labels, dictionary_of_value_arrays,
-                      colours=None, width=0.35,
-                      save=None, xticks_rot='horizontal'):
+def plot_stacked_bars(
+    title,
+    labels,
+    value_labels,
+    dictionary_of_value_arrays,
+    colours=None,
+    width=0.35,
+    save=None,
+    xticks_rot="horizontal",
+):
     """
     Plots a stacked bar chart, with any number of columns and
     components per stack (must be equal for all bars)
@@ -799,10 +1222,10 @@ def plot_stacked_bars(title, labels, value_labels, dictionary_of_value_arrays,
     for key in dictionary_of_value_arrays:
         assert len(list(dictionary_of_value_arrays[key])) == len(list(labels))
 
-    #Plot a stacked bar chart
+    # Plot a stacked bar chart
     nr_bars = len(labels)
     indices = np.arange(nr_bars)  # The indices of the bars
-    bottoms = {} # The height of each bar, by key
+    bottoms = {}  # The height of each bar, by key
 
     # Collect bars to generate. We want the first bar to end up at
     # the top, therefore we determine their position starting from
@@ -814,21 +1237,34 @@ def plot_stacked_bars(title, labels, value_labels, dictionary_of_value_arrays,
     for index, key in enumerate(value_labels):
         values = np.array(dictionary_of_value_arrays[key])
         if colours is not None:
-            plt.bar(indices, values, width, color=colours[index], bottom=bottoms[key])
+            plt.bar(
+                indices,
+                values,
+                width,
+                color=colours[index],
+                bottom=bottoms[key],
+            )
         else:
             plt.bar(indices, values, width, bottom=bottoms[key])
         for x, v, b in zip(indices, values, bottoms[key]):
             if v >= np.amax(np.array(valueSum)) / 40:
-                plt.text(x+width/2, b+v/2, "%.1f%%" % (100 * v / valueSum[x]),
-                         horizontalalignment='center', verticalalignment='center')
+                plt.text(
+                    x + width / 2,
+                    b + v / 2,
+                    "%.1f%%" % (100 * v / valueSum[x]),
+                    horizontalalignment="center",
+                    verticalalignment="center",
+                )
 
-    plt.xticks(indices+width/2., labels, rotation=xticks_rot)
+    plt.xticks(indices + width / 2.0, labels, rotation=xticks_rot)
     plt.title(title)
-    plt.legend(value_labels, bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
-    #plt.legend(dictionary_of_value_arrays.keys(), loc=1) # loc=2 -> legend upper-left
+    plt.legend(
+        value_labels, bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.0
+    )
+    # plt.legend(dictionary_of_value_arrays.keys(), loc=1) # loc=2 -> legend upper-left
 
     if save:
-        plt.savefig(save, format='pdf', dpi=1200, bbox_inches = 'tight')
+        plt.savefig(save, format="pdf", dpi=1200, bbox_inches="tight")
     pylab.show()
 
 
@@ -846,9 +1282,18 @@ def check_pipeline_config(cfg, pure_pipelines):
     return okay
 
 
-def compare_telescopes_default(telescope_1, band_1, pipeline_1, adjusts_1,
-                               telescope_2, band_2, pipeline_2, adjusts_2,
-                               verbosity='Overview', save=None):
+def compare_telescopes_default(
+    telescope_1,
+    band_1,
+    pipeline_1,
+    adjusts_1,
+    telescope_2,
+    band_2,
+    pipeline_2,
+    adjusts_2,
+    verbosity="Overview",
+    save=None,
+):
     """
     Evaluates two telescopes, both operating in a given band and
     pipeline, using their default parameters.  A bit of an ugly bit of
@@ -868,20 +1313,33 @@ def compare_telescopes_default(telescope_1, band_1, pipeline_1, adjusts_1,
     """
 
     # Make configurations and check
-    cfg_1 = PipelineConfig(telescope=telescope_1, band=band_1,
-                           pipeline=pipeline_1, adjusts=adjusts_1)
-    cfg_2 = PipelineConfig(telescope=telescope_2, band=band_2,
-                           pipeline=pipeline_2, adjusts=adjusts_2)
-    if not check_pipeline_config(cfg_1, pure_pipelines=True) or \
-       not check_pipeline_config(cfg_2, pure_pipelines=True):
+    cfg_1 = PipelineConfig(
+        telescope=telescope_1,
+        band=band_1,
+        pipeline=pipeline_1,
+        adjusts=adjusts_1,
+    )
+    cfg_2 = PipelineConfig(
+        telescope=telescope_2,
+        band=band_2,
+        pipeline=pipeline_2,
+        adjusts=adjusts_2,
+    )
+    if not check_pipeline_config(
+        cfg_1, pure_pipelines=True
+    ) or not check_pipeline_config(cfg_2, pure_pipelines=True):
         return
 
     # Determine which rows to show
     (result_map, result_titles, result_units) = mk_result_map_rows(verbosity)
 
     # Loop through telescope configurations, collect results
-    display(HTML('<font color="blue">Computing the result -- this may take several seconds.</font>'))
-    detailed = (verbosity=='Debug')
+    display(
+        HTML(
+            '<font color="blue">Computing the result -- this may take several seconds.</font>'
+        )
+    )
+    detailed = verbosity == "Debug"
     tels_result_values = [
         _compute_results(cfg_1, result_map, detailed, detailed),
         _compute_results(cfg_2, result_map, detailed, detailed),
@@ -889,8 +1347,13 @@ def compare_telescopes_default(telescope_1, band_1, pipeline_1, adjusts_1,
     display(HTML('<font color="blue">Done computing.</font>'))
 
     # Show comparison table
-    show_table_compare('Computed Values', result_titles, tels_result_values[0],
-                                     tels_result_values[1], result_units)
+    show_table_compare(
+        "Computed Values",
+        result_titles,
+        tels_result_values[0],
+        tels_result_values[1],
+        result_units,
+    )
 
     # Show comparison stacked bars
     products_1 = tels_result_values[0][-1]
@@ -900,15 +1363,21 @@ def compare_telescopes_default(telescope_1, band_1, pipeline_1, adjusts_1,
     telescope_labels = (cfg_1.describe(), cfg_2.describe())
 
     values = {
-        label: (products_1.get(label,0),products_2.get(label,0))
+        label: (products_1.get(label, 0), products_2.get(label, 0))
         for label in labels
     }
 
-    plot_stacked_bars('Computational Requirements (PetaFLOPS)', telescope_labels, labels, values,
-                                    colours, save=save)
+    plot_stacked_bars(
+        "Computational Requirements (PetaFLOPS)",
+        telescope_labels,
+        labels,
+        values,
+        colours,
+        save=save,
+    )
 
-def evaluate_hpso_optimized(hpso, hpso_pipe, adjusts='',
-                            verbosity='Overview'):
+
+def evaluate_hpso_optimized(hpso, hpso_pipe, adjusts="", verbosity="Overview"):
     """
     Evaluates a High Priority Science Objective by optimizing NFacet and Tsnap to minimize the total FLOP rate
 
@@ -919,28 +1388,42 @@ def evaluate_hpso_optimized(hpso, hpso_pipe, adjusts='',
     # Make and check pipeline configuration
     display(HTML('<font color="blue">Evaluating...</font>'))
     cfg = PipelineConfig(hpso=hpso, hpso_pipe=hpso_pipe, adjusts=adjusts)
-    if not check_pipeline_config(cfg, pure_pipelines=True): return
+    if not check_pipeline_config(cfg, pure_pipelines=True):
+        return
 
     # Determine which rows to calculate & show
     (result_map, result_titles, result_units) = mk_result_map_rows(verbosity)
 
     # Compute
-    detailed = (verbosity=='Debug')
+    detailed = verbosity == "Debug"
     result_values = _compute_results(cfg, result_map, detailed, detailed)
     display(HTML('<font color="blue">Done computing. Results follow:</font>'))
 
     # Show table of results
-    show_table('Computed Values', result_titles, result_values, result_units)
+    show_table("Computed Values", result_titles, result_values, result_units)
 
     # Show pie graph of FLOP counts
     values = result_values[-1]  # the last value
     colours = default_rflop_plotting_colours(set(values))
-    plot_pie('FLOP breakdown for %s' % HPSOs.hpso_telescopes[hpso],
-             values.keys(), list(values.values()), colours)
+    plot_pie(
+        "FLOP breakdown for %s" % HPSOs.hpso_telescopes[hpso],
+        values.keys(),
+        list(values.values()),
+        colours,
+    )
 
 
-def evaluate_telescope_optimized(telescope, band, pipeline, max_baseline="default", Nf_max="default",
-                                 blcoal=True, on_the_fly=False, scale_predict_by_facet=True, verbosity='Overview'):
+def evaluate_telescope_optimized(
+    telescope,
+    band,
+    pipeline,
+    max_baseline="default",
+    Nf_max="default",
+    blcoal=True,
+    on_the_fly=False,
+    scale_predict_by_facet=True,
+    verbosity="Overview",
+):
     """
     Evaluates a telescope with manually supplied parameters, but then automatically optimizes NFacet and Tsnap
     to minimize the total FLOP rate for the supplied parameters
@@ -956,30 +1439,45 @@ def evaluate_telescope_optimized(telescope, band, pipeline, max_baseline="defaul
     """
 
     # Make configuration
-    cfg = PipelineConfig(telescope=telescope, pipeline=pipeline,
-                         band=band, Bmax=max_baseline,
-                         Nf_max=Nf_max, blcoal=blcoal,
-                         on_the_fly=on_the_fly,
-                         scale_predict_by_facet=scale_predict_by_facet)
-    if not cfg.is_valid(pure_pipelines=True)[0]: return
+    cfg = PipelineConfig(
+        telescope=telescope,
+        pipeline=pipeline,
+        band=band,
+        Bmax=max_baseline,
+        Nf_max=Nf_max,
+        blcoal=blcoal,
+        on_the_fly=on_the_fly,
+        scale_predict_by_facet=scale_predict_by_facet,
+    )
+    if not cfg.is_valid(pure_pipelines=True)[0]:
+        return
 
     # Determine rows to show
     (result_map, result_titles, result_units) = mk_result_map_rows(verbosity)
 
     # Compute
-    display(HTML('<font color="blue">Computing the result -- this may take several seconds.'
-                 '</font>'))
-    detailed = (verbosity=='Debug')
+    display(
+        HTML(
+            '<font color="blue">Computing the result -- this may take several seconds.'
+            "</font>"
+        )
+    )
+    detailed = verbosity == "Debug"
     result_values = _compute_results(cfg, result_map, detailed, detailed)
     display(HTML('<font color="blue">Done computing. Results follow:</font>'))
 
     # Make table
-    show_table('Computed Values', result_titles, result_values, result_units)
+    show_table("Computed Values", result_titles, result_values, result_units)
 
     # Make pie plot
     values = result_values[-1]  # the last value
     colours = default_rflop_plotting_colours(set(values))
-    plot_pie('FLOP breakdown for %s' % telescope, values.keys(), list(values.values()), colours)
+    plot_pie(
+        "FLOP breakdown for %s" % telescope,
+        values.keys(),
+        list(values.values()),
+        colours,
+    )
 
 
 def _pipeline_configurations(telescopes, bands, pipelines, adjusts={}):
@@ -989,9 +1487,12 @@ def _pipeline_configurations(telescopes, bands, pipelines, adjusts={}):
     for telescope in telescopes:
         for band in bands:
             for pipeline in pipelines:
-                cfg = PipelineConfig(telescope=telescope, band=band,
-                                     pipeline=pipeline,
-                                     adjusts=adjusts)
+                cfg = PipelineConfig(
+                    telescope=telescope,
+                    band=band,
+                    pipeline=pipeline,
+                    adjusts=adjusts,
+                )
 
                 # Check whether the configuration is valid
                 (okay, msgs) = cfg.is_valid()
@@ -1001,8 +1502,15 @@ def _pipeline_configurations(telescopes, bands, pipelines, adjusts={}):
     return configs
 
 
-def write_csv_pipelines(filename, telescopes, bands, pipelines, adjusts="",
-                        verbose=False, parallel=0):
+def write_csv_pipelines(
+    filename,
+    telescopes,
+    bands,
+    pipelines,
+    adjusts="",
+    verbose=False,
+    parallel=0,
+):
     """
     Evaluates all valid configurations of this telescope and dumps the
     result as a CSV file.
@@ -1012,7 +1520,7 @@ def write_csv_pipelines(filename, telescopes, bands, pipelines, adjusts="",
     configs = _pipeline_configurations(telescopes, bands, pipelines, adjusts)
 
     # Calculate
-    rows = RESULT_MAP # Everything - hardcoded for now
+    rows = RESULT_MAP  # Everything - hardcoded for now
     results = _batch_compute_results(configs, rows, parallel, verbose, True)
 
     # Write CSV
@@ -1033,7 +1541,7 @@ def write_csv_hpsos(filename, hpsos, adjusts="", verbose=False, parallel=0):
             configs.append(cfg)
 
     # Calculate
-    rows = RESULT_MAP # Everything - hardcoded for now
+    rows = RESULT_MAP  # Everything - hardcoded for now
     results = _batch_compute_results(configs, rows, parallel, verbose, True)
 
     # Write CSV
@@ -1044,7 +1552,7 @@ def write_csv_custom(infiles, outfile, verbose=False, parallel=0):
     """
     Evaluates the configurations specified in the input yaml files and dumps the
     result as a CSV file.
-    
+
     :param infiles: `list` of `str`. List of yaml files which contain the model parameters for a pipeline step in an observation.
     :param outfile: `str`. File name for the output csv.
     :param custom_arrays: `list` of `Bool`. For each infile; True means a custom telescope array is used, False means histogram bins are read from the yaml. None assumes all False.
@@ -1055,25 +1563,30 @@ def write_csv_custom(infiles, outfile, verbose=False, parallel=0):
     # Make configuration list
     configs = []
     for infile in infiles:
-        
         obs = Observation(use_yaml=True, yaml_path=infile)
-        
+
         cfg = obs.pipeline_config
 
         # Check whether the configuration is valid
         (okay, msgs) = cfg.is_valid()
         if okay:
             configs.append(cfg)
-    
+
     # Calculate
-    rows = RESULT_MAP # Everything - hardcoded for now
+    rows = RESULT_MAP  # Everything - hardcoded for now
     results = _batch_compute_results(configs, rows, parallel, verbose, True)
 
     # Write CSV
     _write_csv(outfile, results, rows)
 
 
-def _compute_results(pipelineConfig: PipelineConfig, result_map, verbose=False, detailed=False, adjusts={}):
+def _compute_results(
+    pipelineConfig: PipelineConfig,
+    result_map,
+    verbose=False,
+    detailed=False,
+    adjusts={},
+):
     """A private method for computing a set of results.
 
     :param pipelineConfig: Complete pipeline configuration
@@ -1098,13 +1611,15 @@ def _compute_results(pipelineConfig: PipelineConfig, result_map, verbose=False, 
     result_values = []
     transposed_results = zip(*result_value_array)
     sum_results = get_result_sum(result_map)
-    for (row_values, sum_it) in zip(transposed_results, sum_results):
+    for row_values, sum_it in zip(transposed_results, sum_results):
         # Sum up baseline dependency unless in detailed mode
-        if not detailed and all([isinstance(vals, list) for vals in row_values]):
+        if not detailed and all(
+            [isinstance(vals, list) for vals in row_values]
+        ):
             if sum_it:
-                row_values = [ sum(vals) for vals in row_values ]
+                row_values = [sum(vals) for vals in row_values]
             else:
-                row_values = [ [vals[0],"..",vals[-1]] for vals in row_values ]
+                row_values = [[vals[0], "..", vals[-1]] for vals in row_values]
         # Then also try to sum up pipeline results, if possible
         if sum_it:
             try:
@@ -1119,12 +1634,18 @@ def _compute_results(pipelineConfig: PipelineConfig, result_map, verbose=False, 
     return result_values
 
 
-def _batch_compute_results(configs, result_map, parallel=0, verbose=False, detailed=False, quiet=False):
-    """Calculate a whole bunch of pipeline configurations. """
+def _batch_compute_results(
+    configs, result_map, parallel=0, verbose=False, detailed=False, quiet=False
+):
+    """Calculate a whole bunch of pipeline configurations."""
 
     if not quiet:
-        display(HTML('<font color="blue">Calculating %d configurations -- this may take quite a while.</font>' %
-                     len(configs)))
+        display(
+            HTML(
+                '<font color="blue">Calculating %d configurations -- this may take quite a while.</font>'
+                % len(configs)
+            )
+        )
 
     # Parallelise if requested
     if parallel > 0 and HAVE_PYMP:
@@ -1140,24 +1661,42 @@ def _batch_compute_results(configs, result_map, parallel=0, verbose=False, detai
                         f.description = "%d/%d" % (f.value, len(configs))
                     config = configQueue.pop()
                     results[config.describe()] = _batch_compute_results(
-                        [config], result_map, verbose=verbose, detailed=detailed,quiet=True)
+                        [config],
+                        result_map,
+                        verbose=verbose,
+                        detailed=detailed,
+                        quiet=True,
+                    )
             except IndexError:
                 pass
-        return list([res for cfg in configs for res in results[cfg.describe()]])
+        return list(
+            [res for cfg in configs for res in results[cfg.describe()]]
+        )
 
     results = []
     for cfg in configs:
-
         # Check that the configuration is valid, skip if it isn't
         (okay, msgs) = cfg.is_valid()
         if not okay:
-            display(HTML('<p>Skipping %s (%s)</p>' % (cfg.describe(), ", ".join(msgs))))
+            display(
+                HTML(
+                    "<p>Skipping %s (%s)</p>"
+                    % (cfg.describe(), ", ".join(msgs))
+                )
+            )
             continue
 
         # Compute, add to results
         if verbose:
-            display(HTML('<p>Calculating %s...</p>' % cfg.describe()))
-        results.append((cfg, _compute_results(cfg, result_map, verbose=verbose, detailed=detailed)))
+            display(HTML("<p>Calculating %s...</p>" % cfg.describe()))
+        results.append(
+            (
+                cfg,
+                _compute_results(
+                    cfg, result_map, verbose=verbose, detailed=detailed
+                ),
+            )
+        )
     return results
 
 
@@ -1166,28 +1705,31 @@ def _write_csv(filename, results, rows):
     Writes pipeline calculation results as a CSV file
     """
 
-    with open(filename, 'w') as csvfile:
+    with open(filename, "w") as csvfile:
         w = csv.writer(csvfile)
 
         # Output row with configurations
-        w.writerow([''] + list(map(lambda r: r[0].describe(), results)))
+        w.writerow([""] + list(map(lambda r: r[0].describe(), results)))
 
         # Output actual results
         for i, row in enumerate(rows):
-
             rowTitle = row[0]
             rowUnit = row[1]
-            if rowUnit != '': rowUnit = ' [' + rowUnit + ']'
+            if rowUnit != "":
+                rowUnit = " [" + rowUnit + "]"
 
             # Convert lists to dictionaries
             resultRow = map(lambda r: r[1][i], results)
-            resultRow = list(map(lambda r: dict(enumerate(r)) if isinstance(r,list) else r,
-                                 resultRow))
+            resultRow = list(
+                map(
+                    lambda r: dict(enumerate(r)) if isinstance(r, list) else r,
+                    resultRow,
+                )
+            )
 
             # Dictionary? Expand
             dicts = list(filter(lambda r: isinstance(r, dict), resultRow))
             if len(list(dicts)) > 0:
-
                 # Collect labels
                 labels = set()
                 for d in dicts:
@@ -1197,22 +1739,27 @@ def _write_csv(filename, results, rows):
                 # (errors) are simply shoved into the first row.
                 first = True
                 for label in labels:
+
                     def printRow(r):
                         if isinstance(r, dict):
-                            return r.get(label, '')
+                            return r.get(label, "")
                         elif first:
                             return r
-                        return ''
-                    w.writerow([rowTitle + str(label) + rowUnit] + list(map(printRow, resultRow)))
+                        return ""
+
+                    w.writerow(
+                        [rowTitle + str(label) + rowUnit]
+                        + list(map(printRow, resultRow))
+                    )
                     first = False
 
             else:
-
                 # Simple write out as-is
                 w.writerow([rowTitle + rowUnit] + resultRow)
 
-
-    display(HTML('<font color="blue">Results written to %s.</font>' % filename))
+    display(
+        HTML('<font color="blue">Results written to %s.</font>' % filename)
+    )
 
 
 def read_csv(filename):
@@ -1221,7 +1768,7 @@ def read_csv(filename):
     """
 
     display(HTML('<font color="blue">Reading %s...</font>' % filename))
-    with open(filename, 'r') as csvfile:
+    with open(filename, "r") as csvfile:
         r = csv.reader(csvfile)
         it = iter(r)
 
@@ -1238,13 +1785,15 @@ def read_csv(filename):
 
         return results
 
-# Strip modifiers from rows
-_convert_old = re.compile('(\\d\\d)(\\w)?(DPrep.|ICAL)')
-_convert_old_max = re.compile('max_([\\w_]+)_(spectral|continuum)')
-def _strip_modifiers(head, do_it=True):
 
+# Strip modifiers from rows
+_convert_old = re.compile("(\\d\\d)(\\w)?(DPrep.|ICAL)")
+_convert_old_max = re.compile("max_([\\w_]+)_(spectral|continuum)")
+
+
+def _strip_modifiers(head, do_it=True):
     # Pipeline renamings
-    head = head.replace('Fast_Img', Pipelines.FastImg)
+    head = head.replace("Fast_Img", Pipelines.FastImg)
 
     # Does it match the old HPSO naming scheme? Convert
     m = _convert_old.match(head)
@@ -1256,18 +1805,20 @@ def _strip_modifiers(head, do_it=True):
     m = _convert_old_max.match(head)
     if m:
         band = m.group(1)
-        if band == 'Band5_MID':
-            band = 'mid_band5a_1'
-        pipeline = ('DPrepC' if m.group(2) == 'spectral' else 'DPrepA')
-        head = 'max_%s (%s)' % (band, pipeline)
+        if band == "Band5_MID":
+            band = "mid_band5a_1"
+        pipeline = "DPrepC" if m.group(2) == "spectral" else "DPrepA"
+        head = "max_%s (%s)" % (band, pipeline)
 
     head = head.lower()
     if do_it:
-        return re.sub('\\[[^\\]]*\\]', '', head).strip(' ')
+        return re.sub("\\[[^\\]]*\\]", "", head).strip(" ")
     return head
 
-def lookup_csv(results, column_name, row_name,
-               ignore_units=True, ignore_modifiers=True):
+
+def lookup_csv(
+    results, column_name, row_name, ignore_units=True, ignore_modifiers=True
+):
     """
     Lookup a value in a CSV table
 
@@ -1291,7 +1842,6 @@ def lookup_csv(results, column_name, row_name,
         return row.get(column_name)
 
     for row_name2, row in results:
-
         # Right row?
         if row_name != _strip_modifiers(row_name2, ignore_units):
             continue
@@ -1306,46 +1856,61 @@ def lookup_csv(results, column_name, row_name,
 
     return None
 
+
 def lookup_csv_observation_names(results, telescope):
     # Get "telescope" and "configuration name" rows from csv
     telescopes = np.array([*results.get("telescope").values()])
-    all_observation_names = np.array([*results.get("observation name").values()])
-    
+    all_observation_names = np.array(
+        [*results.get("observation name").values()]
+    )
+
     # Get the csv column indices that have the correct telescope
     compatible_observation_indices = np.where(telescopes == telescope)[0]
     # Get the unique "configuration name" values which use the correct telescope
-    unique_observation_names = np.unique(all_observation_names[compatible_observation_indices])
-    
+    unique_observation_names = np.unique(
+        all_observation_names[compatible_observation_indices]
+    )
+
     return unique_observation_names
+
 
 def lookup_observation_pipelines_csv(results, observation_name):
     # Get "configuration name" and "pipeline" rows from csv
-    all_observation_names = np.array([*results.get("observation name").values()])
+    all_observation_names = np.array(
+        [*results.get("observation name").values()]
+    )
     all_pipelines = np.array([*results.get("pipeline").values()])
-    
+
     # Get the column indices which correspond with observation_name
-    observation_column_indices = np.where(all_observation_names == observation_name)[0]
-    
+    observation_column_indices = np.where(
+        all_observation_names == observation_name
+    )[0]
+
     # Get all pipelines in the observation
     pipelines_in_observation = all_pipelines[observation_column_indices]
-            
+
     return pipelines_in_observation, observation_column_indices
 
+
 def strip_csv(csv, ignore_units=True, ignore_modifiers=True):
-
     return {
-        _strip_modifiers(row_name, ignore_units) : {
-            _strip_modifiers(column_name, ignore_modifiers) : v
+        _strip_modifiers(row_name, ignore_units): {
+            _strip_modifiers(column_name, ignore_modifiers): v
             for column_name, v in cols
-            }
-        for row_name, cols in csv
         }
+        for row_name, cols in csv
+    }
 
 
-def compare_csv(result_file, ref_file,
-                ignore_modifiers=True, ignore_units=True,
-                row_threshold=0.01,
-                export_html='', return_diffs=False):
+def compare_csv(
+    result_file,
+    ref_file,
+    ignore_modifiers=True,
+    ignore_units=True,
+    row_threshold=0.01,
+    export_html="",
+    return_diffs=False,
+):
     """
     Read and compare two CSV files with telescope parameters
 
@@ -1362,33 +1927,40 @@ def compare_csv(result_file, ref_file,
     results = read_csv(result_file)
     ref = dict(read_csv(ref_file))
 
-    ref = { _strip_modifiers(name, ignore_units): row
-            for (name, row) in ref.items() }
+    ref = {
+        _strip_modifiers(name, ignore_units): row
+        for (name, row) in ref.items()
+    }
 
     # Headings
-    stbl = '<table><tr><th></th><th>Mean</th><th>Min</th><th>Max</th>'
+    stbl = "<table><tr><th></th><th>Mean</th><th>Min</th><th>Max</th>"
     for head, _ in results[0][1]:
-        stbl += '<th>%s</th>' % head
-    stbl += '</tr>\n'
+        stbl += "<th>%s</th>" % head
+    stbl += "</tr>\n"
 
     # Loop through rows
     all_diffs = []
     all_diff_sums = []
     for row_name, row in results:
-
         # Heading?
-        if row_name.startswith('--'):
-            stbl += '<tr><th colspan="%d" style="text-align:left">%s</th></tr>' % (len(row)+4, row_name)
+        if row_name.startswith("--"):
+            stbl += (
+                '<tr><th colspan="%d" style="text-align:left">%s</th></tr>'
+                % (len(row) + 4, row_name)
+            )
             continue
         else:
-            shead = '<tr><td>%s</td>' % row_name
+            shead = "<tr><td>%s</td>" % row_name
 
         # Accumulate difference?
         diffs = []
 
         # Locate reference results
         refRow = ref.get(_strip_modifiers(row_name, ignore_units), [])
-        refRow = map(lambda h_v: (_strip_modifiers(h_v[0], ignore_modifiers), h_v[1]), refRow)
+        refRow = map(
+            lambda h_v: (_strip_modifiers(h_v[0], ignore_modifiers), h_v[1]),
+            refRow,
+        )
         refRow = dict(refRow)
 
         # Loop through values
@@ -1398,89 +1970,114 @@ def compare_csv(result_file, ref_file,
 
             # Number?
             try:
-
                 # Non-null value
                 num = float(val)
-                if num == 0: raise ValueError
+                if num == 0:
+                    raise ValueError
 
                 # Try to get reference as number, too
                 ref_num = None
                 if head in refRow:
-                    try: ref_num = float(refRow[head])
-                    except ValueError: ref_num = None
+                    try:
+                        ref_num = float(refRow[head])
+                    except ValueError:
+                        ref_num = None
 
                 # Determine difference
                 diff = None
                 if not (ref_num is None or ref_num == 0):
-                    diff = 100*(num-ref_num)/ref_num
+                    diff = 100 * (num - ref_num) / ref_num
                     # Relative difference - use number as
                     # reference for negative changes, as -50% is
                     # about as bad as +200%.
-                    diff_rel = max(diff, 100*(ref_num-num)/num)
+                    diff_rel = max(diff, 100 * (ref_num - num) / num)
                     diffs.append(diff)
 
                 # Output
                 if not diff is None:
-                    s += '<td bgcolor="#%2x%2x00">%s&nbsp;<small>(%+d%%)</small></td>' % (
-                        int(min(diff_rel/50*255, 255)),
-                        int(255-min(max(0, diff_rel-50)/50*255, 255)),
-                        format_result(num),
-                        diff)
+                    s += (
+                        '<td bgcolor="#%2x%2x00">%s&nbsp;<small>(%+d%%)</small></td>'
+                        % (
+                            int(min(diff_rel / 50 * 255, 255)),
+                            int(
+                                255
+                                - min(max(0, diff_rel - 50) / 50 * 255, 255)
+                            ),
+                            format_result(num),
+                            diff,
+                        )
+                    )
                 else:
-                    s += '<td>%s</td>' % format_result(num)
+                    s += "<td>%s</td>" % format_result(num)
 
             except ValueError:
-
                 # Get reference as string
                 ref_str = refRow.get(head)
 
                 # No number, output as is
                 if not ref_str is None:
                     if val == ref_str:
-                        if val == '':
-                            s += '<td></td>'
+                        if val == "":
+                            s += "<td></td>"
                         else:
-                            s += '<td bgcolor="#00ff00">%s&nbsp;<small>(same)</small></td>' % val
+                            s += (
+                                '<td bgcolor="#00ff00">%s&nbsp;<small>(same)</small></td>'
+                                % val
+                            )
                             diffs.append(0)
                     else:
-                        s += '<td bgcolor="#ffff00">%s&nbsp;<small>(!= %s)</small></td>' % (val, ref_str)
+                        s += (
+                            '<td bgcolor="#ffff00">%s&nbsp;<small>(!= %s)</small></td>'
+                            % (val, ref_str)
+                        )
                         diffs.append(100)
                 else:
-                    s += '<td>%s</td>' % val
+                    s += "<td>%s</td>" % val
 
         all_diffs.append((row_name, diffs))
-        s += '</tr>\n'
+        s += "</tr>\n"
         if len(diffs) != 0:
-            sdiff = '<td>%+.3g%%</td><td>%+.3g%%</td><td>%+.3g%%</td>' % (
-                np.mean(diffs), np.min(diffs), np.max(diffs))
-            all_diff_sums.append((row_name, np.mean(diffs), np.min(diffs), np.max(diffs)))
+            sdiff = "<td>%+.3g%%</td><td>%+.3g%%</td><td>%+.3g%%</td>" % (
+                np.mean(diffs),
+                np.min(diffs),
+                np.max(diffs),
+            )
+            all_diff_sums.append(
+                (row_name, np.mean(diffs), np.min(diffs), np.max(diffs))
+            )
         else:
-            sdiff = '<td colspan=3></td>'
+            sdiff = "<td colspan=3></td>"
         if len(diffs) == 0 or np.max(np.abs(diffs)) >= row_threshold:
             stbl += shead + sdiff + s
 
-    stbl += '</table>'
+    stbl += "</table>"
 
     # Write HTML report to file - or display
-    if export_html != '':
-        f = open(export_html, 'w')
+    if export_html != "":
+        f = open(export_html, "w")
         print("<!doctype html>", file=f)
         print("<html>", file=f)
-        print("  <title>SDP Parametric Model Result Comparison</title>", file=f)
-        print("  <body><p>Comparing %s against %s</p>" % (result_file, ref_file), file=f)
+        print(
+            "  <title>SDP Parametric Model Result Comparison</title>", file=f
+        )
+        print(
+            "  <body><p>Comparing %s against %s</p>" % (result_file, ref_file),
+            file=f,
+        )
         print(stbl, file=f)
         print("  </body>", file=f)
         print("</html>", file=f)
         f.close()
         display(FileLink(export_html))
     else:
-        display(HTML('<h3>Comparison:</h3>'))
+        display(HTML("<h3>Comparison:</h3>"))
         display(HTML(stbl))
 
     if return_diffs:
         return all_diff_sums
 
-def find_csvs(csv_path = os.path.join(os.pardir, "data", "csv")):
+
+def find_csvs(csv_path=os.path.join(os.pardir, "data", "csv")):
     """
     Returns a map of all CSV files currently checked into the Git repository.
 
@@ -1488,8 +2085,19 @@ def find_csvs(csv_path = os.path.join(os.pardir, "data", "csv")):
     """
 
     # Get all reference files from Git history
-    refs = subprocess.check_output(["git", "log", "--pretty=format:", "--name-only", "--reverse", csv_path]).split()
-    refs = list(map(lambda r: os.path.relpath(r.decode(), "notebooks"), reversed(refs)))
+    refs = subprocess.check_output(
+        [
+            "git",
+            "log",
+            "--pretty=format:",
+            "--name-only",
+            "--reverse",
+            csv_path,
+        ]
+    ).split()
+    refs = list(
+        map(lambda r: os.path.relpath(r.decode(), "notebooks"), reversed(refs))
+    )
 
     csv_map = {}
     p = re.compile("[\\d\\-]*\\-([a-z0-9]+)_(pipelines|hpsos)\\.")
@@ -1501,7 +2109,8 @@ def find_csvs(csv_path = os.path.join(os.pardir, "data", "csv")):
             csv_map[(m.group(1), m.group(2))] = ref
     return csv_map
 
-def newest_csv(csv_map, typ = 'hpsos', rev = 'HEAD', ignore_rev = False):
+
+def newest_csv(csv_map, typ="hpsos", rev="HEAD", ignore_rev=False):
     """
     Finds the CSV closest to the given revision according to the Git history
 
@@ -1516,18 +2125,24 @@ def newest_csv(csv_map, typ = 'hpsos', rev = 'HEAD', ignore_rev = False):
     # This means that we go by graph order for commits that appear in
     # the same history, but by date if commits appear in separate
     # branches.
-    ancestors = subprocess.check_output(
-        ["git", "log", "--date-order", "--format=%h", rev]).decode().split()
+    ancestors = (
+        subprocess.check_output(
+            ["git", "log", "--date-order", "--format=%h", rev]
+        )
+        .decode()
+        .split()
+    )
 
     # Find first ancestor that has a CSV
-    for ancestor in (ancestors[1:] if ignore_rev else ancestors):
+    for ancestor in ancestors[1:] if ignore_rev else ancestors:
         if (ancestor, typ) in csv_map:
             return csv_map[(ancestor, typ)]
     return None
 
-def stack_bars_pipelines(title, telescopes, bands, pipelines,
-                         adjusts={}, parallel=0,
-                         save=None):
+
+def stack_bars_pipelines(
+    title, telescopes, bands, pipelines, adjusts={}, parallel=0, save=None
+):
     """
     Evaluates all valid configurations of this telescope and shows
     results as stacked bars.
@@ -1537,20 +2152,25 @@ def stack_bars_pipelines(title, telescopes, bands, pipelines,
     configs = _pipeline_configurations(telescopes, bands, pipelines, adjusts)
 
     # Calculate
-    rows = [RESULT_MAP[-1]] # Products only
+    rows = [RESULT_MAP[-1]]  # Products only
     results = _batch_compute_results(configs, rows, parallel)
 
     products = list(map(lambda r: r[1][-1], results))
     labels = sorted(set().union(*list(map(lambda p: p.keys(), products))))
     colours = default_rflop_plotting_colours(labels)
-    tel_labels = list(map(lambda cfg: cfg.describe().replace(" ", "\n"), configs))
+    tel_labels = list(
+        map(lambda cfg: cfg.describe().replace(" ", "\n"), configs)
+    )
     values = {
         label: list(map(lambda p: p.get(label, 0), products))
         for label in labels
     }
 
     # Show stacked bar graph
-    plot_stacked_bars(title, tel_labels, labels, values, colours, width=0.7, save=save)
+    plot_stacked_bars(
+        title, tel_labels, labels, values, colours, width=0.7, save=save
+    )
+
 
 def stack_bars_hpsos(title, hpsos, adjusts={}, parallel=0, save=None):
     """
@@ -1562,10 +2182,12 @@ def stack_bars_hpsos(title, hpsos, adjusts={}, parallel=0, save=None):
     configs = []
     for hpso in hpsos:
         for hpso_pipe in HPSOs.hpso_pipelines[hpso]:
-            cfg = PipelineConfig(hpso=hpso, hpso_pipe=hpso_pipe, adjusts=adjusts)
+            cfg = PipelineConfig(
+                hpso=hpso, hpso_pipe=hpso_pipe, adjusts=adjusts
+            )
             configs.append(cfg)
 
-    rows = [RESULT_MAP[-1]] # Products only
+    rows = [RESULT_MAP[-1]]  # Products only
     results = _batch_compute_results(configs, rows, parallel)
 
     products = list(map(lambda r: r[1][-1], results))
@@ -1578,6 +2200,13 @@ def stack_bars_hpsos(title, hpsos, adjusts={}, parallel=0, save=None):
     }
 
     # Show stacked bar graph
-    plot_stacked_bars(title, tel_labels, labels, values, colours, width=0.7,
-                      xticks_rot='vertical',
-                      save=save)
+    plot_stacked_bars(
+        title,
+        tel_labels,
+        labels,
+        values,
+        colours,
+        width=0.7,
+        xticks_rot="vertical",
+        save=save,
+    )
