@@ -1,8 +1,8 @@
 [tool.poetry]
 name = "ska-sdp-par-model"
-version = "0.1.0"
+version = "0.7.0"
 description = "Python implementation of the SKA Science Data Processor parametric model."
-authors = ["Peter Wortmann <Peter.Wortmann@skao.int>"]
+authors = ["Rosie Bolton", "Francois Malan", "Bojan Nikolic", "Andreas Wicenec", "Peter Wortmann"]
 license = "Apache 2.0"
 readme = "README.md"
 

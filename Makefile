@@ -1,10 +1,12 @@
 
 include .make/base.mk
 include .make/python.mk
+include .make/docs.mk
 
 PROJECT_NAME = ska-sdp-par-model
 PROJECT_PATH = ska-telescope/sdp/ska-sdp-config
 ARTEFACT_TYPE = python
+DOCS_SOURCEDIR = docs
 
 # Just disable everything we're running afoul of for the moment.
 PYTHON_SWITCHES_FOR_FLAKE8 = --ignore=E203,E262,E501,E711,E712,E713,E714,E721,E722,E731,F401,F403,F405,F811,F821,F841,W503,W293,E303
