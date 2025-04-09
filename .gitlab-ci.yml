@@ -35,11 +35,14 @@ include:
 # simply retrying a couple of times seems to fix it. This likely means
 # that we spin a bit if something goes wrong systematically, but
 # better than dealing with random false positives...
-test:
+notebook-test:
   stage: test
   tags: [k8srunner]
   script:
-    - py.test --verbose --color=yes --junitxml=junit.xml
+    - poetry config virtualenvs.in-project true
+    - poetry config virtualenvs.create $POETRY_CONFIG_VIRTUALENVS_CREATE
+    - poetry install --with=dev
+    - pytest --verbose --color=yes --junitxml=junit.xml
         --cov=sdp_par_model --cov-report=term --cov-report=html
         -n 4 --dist loadscope --nbval-lax
         notebooks/SKA1_Export.ipynb
@@ -62,7 +65,7 @@ pages:
   stage: publish
   tags: [k8srunner]
   only: [master]
-  dependencies: [test] # For coverage
+  dependencies: [notebook-test] # For coverage
   script:
     # Make Sphinx documentation
     - pip install sphinx sphinx-rtd-theme
