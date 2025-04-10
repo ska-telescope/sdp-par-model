@@ -64,12 +64,12 @@ notebook-test:
 pages:
   stage: publish
   tags: [k8srunner]
-  only: [master]
+  #only: [master]
   dependencies: [notebook-test] # For coverage
   script:
-    # Make Sphinx documentation
-    - pip install sphinx sphinx-rtd-theme
-    - make -C docs html
+    - poetry config virtualenvs.in-project true
+    - poetry config virtualenvs.create $POETRY_CONFIG_VIRTUALENVS_CREATE
+    - poetry install --with=docs
     # Make notebooks
     - make -j 4 -k -C notebooks notebooks_html
     # Copy all into "public"
